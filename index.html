@@ -1,0 +1,2253 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0e16">
+<title>StockSight - 藤井工藝</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0e16; --bg2:#0d1320;
+  --card:#121826; --card2:#161e2e; --stroke:rgba(255,255,255,.07);
+  --txt:#e8edf5; --sub:#8b95a7; --faint:#5a6478;
+  --gold:#d4af37; --gold2:#e8c860;
+  --bull:#22c55e; --bull2:#2ee087; --bear:#ef4444;
+  --blue:#3b82f6; --cyan:#22d3ee; --amber:#f59e0b; --violet:#a78bfa;
+  --rad:16px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);color:var(--txt);
+  font-family:'Noto Sans JP',system-ui,sans-serif;font-size:14px;
+  overscroll-behavior-y:none}
+.mono{font-family:'Roboto Mono',monospace;font-variant-numeric:tabular-nums}
+#app{max-width:520px;margin:0 auto;padding:10px 12px 86px}
+.view{display:none}.view.active{display:block}
+
+/* ===== 固定ヘッダー ===== */
+#topbar{position:sticky;top:0;z-index:40;background:rgba(10,14,22,.96);
+  backdrop-filter:blur(14px);padding:8px 12px 6px;
+  padding-top:calc(8px + env(safe-area-inset-top));
+  border-bottom:1px solid var(--stroke);margin:0 -12px 12px;
+  display:flex;flex-direction:column;gap:6px}
+.tb-row1{display:flex;align-items:center;gap:8px}
+.tb-row2{display:flex;align-items:center;gap:8px}
+/* ===== header ===== */
+header{display:flex;align-items:center;gap:10px;padding:8px 2px 14px}
+.brand{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.brand .mark{width:34px;height:34px;border:1.5px solid var(--gold);border-radius:9px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--gold2);font-weight:900;font-size:18px;
+  background:linear-gradient(135deg,rgba(212,175,55,.12),transparent)}
+.brand .nm{line-height:1.05}
+.brand .nm b{font-size:15px;letter-spacing:.06em}
+.brand .nm span{display:block;font-size:8.5px;color:var(--gold);letter-spacing:.22em}
+.searchbox{flex:1;display:flex;align-items:center;background:var(--card);
+  border:1px solid var(--stroke);border-radius:12px;padding:0 10px;height:40px}
+.searchbox input{flex:1;background:none;border:0;outline:0;color:var(--txt);
+  font-size:15px;font-family:inherit;min-width:0}
+.icbtn{width:40px;height:40px;border-radius:12px;border:1px solid var(--stroke);
+  background:var(--card);color:var(--sub);font-size:17px;cursor:pointer;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center}
+.icbtn.on{color:var(--gold2);border-color:rgba(212,175,55,.45)}
+.icbtn .dot{position:relative}
+.icbtn .dot::after{content:'';position:absolute;top:-2px;right:-4px;width:6px;height:6px;
+  border-radius:50%;background:var(--blue)}
+
+/* ===== cards ===== */
+.card{background:var(--card);border:1px solid var(--stroke);border-radius:var(--rad);
+  padding:14px;margin-bottom:12px}
+.row{display:flex;gap:12px}
+.chead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.chead b{font-size:13.5px}
+.chead .sub,.sub{color:var(--sub);font-size:11.5px;font-weight:400}
+.link{color:var(--blue);font-size:12px;background:none;border:0;cursor:pointer;font-family:inherit}
+
+/* quote + AI card */
+.toprow{display:grid;grid-template-columns:1fr 1.1fr;gap:12px;margin-bottom:12px}
+.qcode{color:var(--sub);font-size:12.5px}
+.qname{font-size:22px;font-weight:900;line-height:1.15;margin:1px 0 0}
+.qfull{color:var(--faint);font-size:9.5px;letter-spacing:.04em;
+  text-transform:uppercase;margin:2px 0 8px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qprice{font-size:30px;font-weight:700}
+.qprice small{font-size:14px;color:var(--sub);font-weight:500}
+.qchg{font-size:13.5px;font-weight:700;margin-top:1px}
+.qts{color:var(--faint);font-size:10.5px;margin-top:5px}
+.up{color:var(--bull2)}.dn{color:var(--bear)}.neu{color:var(--sub)}
+.aicard{display:flex;flex-direction:column}
+.gaugewrap{display:flex;align-items:center;gap:12px;flex:1}
+.gauge{position:relative;width:78px;height:78px;flex-shrink:0}
+.gauge svg{transform:rotate(-90deg)}
+.gauge .gv{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:15px}
+.verdict{font-size:21px;font-weight:900;line-height:1.1}
+.confline{color:var(--sub);font-size:12px;margin-top:3px}
+.detailbtn{align-self:flex-end;margin-top:8px;background:var(--card2);
+  border:1px solid var(--stroke);color:var(--txt);font-size:11.5px;
+  border-radius:9px;padding:5px 10px;cursor:pointer;font-family:inherit}
+
+/* stats strip */
+.stats{display:grid;grid-template-columns:repeat(4,auto);gap:4px 14px;
+  overflow-x:auto;white-space:nowrap;padding:12px 14px}
+.stat .k{color:var(--sub);font-size:10.5px}
+.stat .v{font-size:14.5px;font-weight:700;margin-top:3px}
+
+/* timeframe tabs */
+.tfrow{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.tabs{display:flex;background:var(--card);border:1px solid var(--stroke);
+  border-radius:12px;padding:3px;flex:1;overflow-x:auto}
+.tab{flex:1;border:0;background:none;color:var(--sub);font-size:12.5px;
+  padding:8px 4px;border-radius:9px;cursor:pointer;font-family:inherit;
+  font-weight:500;white-space:nowrap}
+.tab.on{background:#28304a;color:#fff;font-weight:700}
+.cfgbtn{height:40px;padding:0 12px;border-radius:12px;border:1px solid var(--stroke);
+  background:var(--card);color:var(--txt);font-size:12px;cursor:pointer;
+  font-family:inherit;flex-shrink:0;display:flex;align-items:center;gap:5px}
+
+/* chart */
+#chartcard{padding:8px 4px 4px}
+#chart{width:100%;display:block;border-radius:10px}
+.chartmsg{text-align:center;color:var(--sub);padding:60px 0;font-size:13px}
+
+/* indicator mini cards */
+.minis{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px}
+.mini{background:var(--card);border:1px solid var(--stroke);border-radius:var(--rad);
+  padding:12px}
+.mini .t{color:var(--sub);font-size:11px}
+.mini .v{font-size:clamp(12px,4.2vw,19px);font-weight:900;margin:4px 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini canvas{width:100%;height:30px;display:block;margin:4px 0}
+.badge{display:inline-block;font-size:10px;font-weight:700;
+  border-radius:7px;padding:3px 8px}
+.b-neu{background:#252d3f;color:var(--sub)}
+.b-bull{background:rgba(34,197,94,.16);color:var(--bull2)}
+.b-bear{background:rgba(239,68,68,.16);color:var(--bear)}
+.b-blue{background:rgba(59,130,246,.16);color:#7eb1ff}
+
+/* votes + signals */
+.duo{display:grid;grid-template-columns:1fr 1.15fr;gap:12px;margin-bottom:12px}
+.votegauge{display:flex;align-items:center;gap:12px}
+.legend{font-size:12px;line-height:2}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px}
+.sigrow{display:flex;align-items:center;gap:8px;font-size:12.5px;
+  padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.sigrow:last-child{border-bottom:0}
+.sigico{width:18px;height:18px;border-radius:5px;display:flex;align-items:center;
+  justify-content:center;font-size:10px;flex-shrink:0}
+.sigrow .nm2{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sigrow .d{color:var(--faint);font-size:11px}
+
+/* news */
+.newsrow{display:flex;gap:10px;font-size:12.5px;padding:7px 0;
+  border-bottom:1px solid rgba(255,255,255,.04);line-height:1.5}
+.newsrow:last-child{border-bottom:0}
+.newsrow .d{color:var(--faint);flex-shrink:0;font-size:11.5px;padding-top:1px}
+
+/* lists (favorites/screening/alerts) */
+.lrow{display:flex;align-items:center;gap:10px;padding:11px 2px;
+  border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer}
+.lrow .grow{flex:1;min-width:0}
+.lrow .nm3{font-weight:700;font-size:14px}
+.lrow .cd{color:var(--sub);font-size:11px}
+.lrow .pr{text-align:right}
+.lrow .pr .p1{font-weight:700;font-size:14px}
+.lrow .pr .p2{font-size:11px}
+.del{border:0;background:rgba(239,68,68,.14);color:var(--bear);border-radius:8px;
+  padding:6px 10px;font-size:11px;cursor:pointer;font-family:inherit}
+.empty{color:var(--faint);text-align:center;padding:36px 0;font-size:13px;line-height:1.9}
+
+/* forms */
+.frow{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
+.frow:last-child{border-bottom:0}
+input[type=number],input[type=text],select{background:var(--card2);
+  border:1px solid var(--stroke);color:var(--txt);border-radius:9px;
+  padding:8px 10px;font-size:13px;font-family:inherit;outline:0;width:110px}
+input[type=text].wide{width:100%}
+select{width:auto}
+.btn{background:var(--blue);border:0;color:#fff;font-weight:700;border-radius:11px;
+  padding:11px 16px;font-size:13.5px;cursor:pointer;font-family:inherit;width:100%}
+.btn.ghost{background:var(--card2);border:1px solid var(--stroke);color:var(--txt)}
+.seg2{display:flex;background:var(--card2);border:1px solid var(--stroke);
+  border-radius:10px;padding:2px}
+.seg2 button{border:0;background:none;color:var(--sub);padding:7px 13px;
+  border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
+.seg2 button.on{background:#28304a;color:#fff;font-weight:700}
+
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(4,6,12,.72);display:none;
+  align-items:flex-end;justify-content:center;z-index:60;backdrop-filter:blur(3px)}
+.modal.open{display:flex}
+.sheet{background:var(--bg2);border:1px solid var(--stroke);border-bottom:0;
+  border-radius:20px 20px 0 0;width:100%;max-width:520px;max-height:82vh;
+  overflow-y:auto;padding:18px 16px 26px}
+.sheet h3{font-size:15px;margin-bottom:8px}
+.grab{width:42px;height:4px;border-radius:4px;background:#2b3450;margin:0 auto 14px}
+
+/* bottom nav */
+nav{position:fixed;left:0;right:0;bottom:0;z-index:50;
+  background:rgba(10,14,22,.92);backdrop-filter:blur(14px);
+  border-top:1px solid var(--stroke)}
+.navin{max-width:520px;margin:0 auto;display:flex;
+  padding:7px 6px calc(7px + env(safe-area-inset-bottom))}
+.nbtn{flex:1;border:0;background:none;color:var(--faint);font-size:9px;
+  cursor:pointer;font-family:inherit;display:flex;flex-direction:column;
+  align-items:center;gap:2px;padding:4px 0;min-width:0}
+.nbtn svg{flex-shrink:0}
+.nbtn.on{color:var(--blue)}
+.powered{text-align:center;color:var(--faint);font-size:10px;padding:14px 0 4px}
+.powered b{color:var(--gold)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:92px;z-index:70;
+  background:#1d2536;border:1px solid var(--stroke);color:var(--txt);
+  border-radius:12px;padding:10px 16px;font-size:13px;
+  box-shadow:0 8px 30px rgba(0,0,0,.5);opacity:0;transition:opacity .25s;
+  pointer-events:none;max-width:86%}
+.toast.show{opacity:1}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--faint);
+  border-top-color:var(--blue);border-radius:50%;animation:sp 1s linear infinite;
+  vertical-align:-2px;margin-right:7px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.note{color:var(--faint);font-size:11px;line-height:1.7;margin-top:8px}
+h2.vt{font-size:17px;font-weight:900;margin:4px 2px 14px}
+
+/* ===== オープニングスプラッシュ ===== */
+#splash{position:fixed;inset:0;z-index:200;background:#0a0e16;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:32px;text-align:center;transition:opacity .5s ease}
+#splash.hide{opacity:0;pointer-events:none}
+#splash.gone{display:none}
+.sp-title{font-size:44px;font-weight:900;color:var(--gold2);
+  letter-spacing:.04em;margin-bottom:10px;
+  animation:spFadeUp .6s ease both}
+@keyframes spFadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+.sp-sub{font-size:16px;font-weight:700;color:var(--gold);letter-spacing:.18em;
+  margin-bottom:44px;animation:spFadeUp .6s .15s ease both}
+.sp-body{font-size:15px;color:var(--txt);line-height:2.1;margin-bottom:36px;
+  max-width:300px;animation:spFadeUp .6s .3s ease both}
+.sp-note{font-size:12px;color:var(--faint);line-height:1.9;
+  border:1px solid var(--stroke);border-radius:14px;padding:14px 20px;
+  background:var(--card);max-width:300px;margin-bottom:44px;
+  animation:spFadeUp .6s .45s ease both}
+.sp-btn{background:var(--gold);color:#0a0e16;font-weight:900;font-size:16px;
+  border:0;border-radius:16px;padding:16px 48px;cursor:pointer;font-family:inherit;
+  letter-spacing:.08em;box-shadow:0 6px 24px rgba(212,175,55,.4);
+  animation:spFadeUp .6s .6s ease both}
+.sp-btn:active{transform:scale(.96)}
+#sc-mode button{padding:7px 7px;font-size:11px}
+.chip{border:1px solid var(--stroke);background:var(--card2);color:var(--sub);
+  border-radius:9px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit}
+.chip.on{background:#28304a;color:#fff;font-weight:700}
+.mini{cursor:pointer}
+#dtlchart{width:100%;display:block;border-radius:10px;touch-action:none}
+.indchip{border:1px solid var(--stroke);background:var(--card2);color:var(--sub);
+  border-radius:20px;padding:6px 13px;font-size:12px;cursor:pointer;font-family:inherit;
+  display:flex;align-items:center;gap:6px;transition:all .15s}
+.indchip.on{background:#28304a;color:#fff;border-color:transparent}
+.indchip i{width:9px;height:9px;border-radius:50%;display:inline-block}
+</style>
+</head>
+<body>
+
+<div id="splash">
+  <div class="sp-title">StockSight</div>
+  <div class="sp-sub">藤井工藝</div>
+  <div class="sp-body">
+    機械学習モデルを使用した<br>
+    日本株 AI 分析・予測アプリです
+  </div>
+  <div class="sp-note">
+    <span style="color:var(--amber);font-weight:700">[!]</span> 本アプリの予測は統計的推定です<br>
+    外れることもございますので<br>
+    投資判断はご自身の責任でお願いします
+  </div>
+  <button class="sp-btn" id="sp-start">はじめる ›</button>
+</div>
+
+<div id="app">
+
+  <!-- ============ ホーム ============ -->
+  <div class="view active" id="v-home">
+    <div id="topbar">
+      <div class="tb-row1">
+        <div class="searchbox" style="flex:1"><input id="symin" placeholder="銘柄コード (例 7203)"
+          enterkeyhint="search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0">
+      <circle cx="6.5" cy="6.5" r="4.5" stroke="#5a6478" stroke-width="1.6"/>
+      <line x1="10" y1="10" x2="14" y2="14" stroke="#5a6478" stroke-width="1.8" stroke-linecap="round"/>
+    </svg></div>
+      </div>
+      <div class="tb-row2">
+        <div style="flex:1;color:var(--sub);font-size:12px;overflow:hidden;white-space:nowrap;
+          text-overflow:ellipsis" id="livebar">株価リアルタイム表示</div>
+        <button class="icbtn" title="お気に入りに追加/削除" style="flex-shrink:0" id="favbtn"><svg id="fav-ico" width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <polygon points="9,2 11,7 17,7 12,11 14,17 9,13 4,17 6,11 1,7 7,7"
+        stroke="#8b95a7" stroke-width="1.5" fill="none"/>
+    </svg></button>
+        <button class="icbtn" id="bellbtn" title="アラート" style="flex-shrink:0">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M9 2a5 5 0 0 0-5 5v3l-1 2h12l-1-2V7a5 5 0 0 0-5-5z"
+          stroke="#8b95a7" stroke-width="1.5" fill="none"/>
+        <path d="M7 14a2 2 0 0 0 4 0" stroke="#8b95a7" stroke-width="1.5" fill="none"/>
+      </svg></button>
+      </div>
+    </div>
+
+    <div class="toprow">
+      <div class="card" style="margin:0">
+        <div class="qcode" id="qcode">----</div>
+        <div class="qname" id="qname">銘柄を検索</div>
+        <div class="qfull" id="qfull">&nbsp;</div>
+        <div class="qprice mono" id="qprice">---</div>
+        <div class="qchg mono neu" id="qchg">&nbsp;</div>
+        <div class="qts" id="qts">&nbsp;</div>
+      </div>
+      <div class="card aicard" style="margin:0">
+        <div class="chead" style="margin-bottom:4px"><b>AI 予測</b>
+          <span class="sub" id="aihorizon">(3営業日先)</span></div>
+        <div class="gaugewrap">
+          <div class="gauge"><svg width="78" height="78" viewBox="0 0 78 78">
+            <circle cx="39" cy="39" r="33" fill="none" stroke="#1d2536" stroke-width="8"/>
+            <circle id="g-arc" cx="39" cy="39" r="33" fill="none" stroke="#22c55e"
+              stroke-width="8" stroke-linecap="round" stroke-dasharray="0 999"/>
+          </svg><div class="gv mono" id="g-val">--%</div></div>
+          <div><div class="verdict" id="verdict">---</div>
+            <div class="confline">信頼度 <b id="confv" class="mono">--%</b></div></div>
+        </div>
+        <button class="detailbtn" id="detailbtn">予測詳細 ›</button>
+      </div>
+    </div>
+
+    <div class="card stats" id="statstrip">
+      <div class="stat"><div class="k">予測中央値</div><div class="v mono" id="s-med">--</div></div>
+      <div class="stat"><div class="k">期待レンジ(68%)</div><div class="v mono" id="s-r68">--</div></div>
+      <div class="stat"><div class="k">期待レンジ(90%)</div><div class="v mono" id="s-r90">--</div></div>
+      <div class="stat"><div class="k">実効ボラ</div><div class="v mono" id="s-vol">--</div></div>
+    </div>
+
+    <div class="tfrow">
+      <div class="tabs" id="tftabs"></div>
+      <button class="cfgbtn" id="cfgbtn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="margin-right:4px">
+      <circle cx="7" cy="7" r="2.5" stroke="#e8edf5" stroke-width="1.4"/>
+      <path d="M7 1v2M7 11v2M1 7h2M11 7h2M3 3l1.4 1.4M9.6 9.6l1.4 1.4M3 11l1.4-1.4M9.6 4.4l1.4-1.4"
+        stroke="#e8edf5" stroke-width="1.4" stroke-linecap="round"/>
+    </svg><span>チャート設定</span></button>
+    </div>
+
+    <div class="card" id="chartcard">
+      <div class="chartmsg" id="chartmsg">銘柄コードを入力して検索してください</div>
+      <canvas id="chart" style="display:none"></canvas>
+    </div>
+
+    <div class="minis">
+      <div class="mini" data-ind="rsi"><div class="t">RSI (14)</div><div class="v mono" id="m-rsi">--</div>
+        <canvas id="c-rsi"></canvas><span class="badge b-neu" id="b-rsi">--</span></div>
+      <div class="mini" data-ind="macd"><div class="t">MACD</div><div class="v" id="m-macd">--</div>
+        <canvas id="c-macd"></canvas><span class="badge b-neu" id="b-macd">--</span></div>
+      <div class="mini" data-ind="bb"><div class="t">BB位置</div><div class="v mono" id="m-bb">--</div>
+        <canvas id="c-bb"></canvas><span class="badge b-neu" id="b-bb">--</span></div>
+    </div>
+
+    <div class="duo">
+      <div class="card" style="margin:0">
+        <div class="chead"><b>モデル投票</b><span class="sub">(アンサンブル)</span></div>
+        <div class="votegauge">
+          <div class="gauge" style="width:84px;height:84px">
+            <svg width="84" height="84" viewBox="0 0 84 84">
+              <circle cx="42" cy="42" r="35" fill="none" stroke="#252d3f" stroke-width="9"/>
+              <circle id="v-arc-bear" cx="42" cy="42" r="35" fill="none" stroke="#ef4444"
+                stroke-width="9" stroke-dasharray="0 999"/>
+              <circle id="v-arc" cx="42" cy="42" r="35" fill="none" stroke="#22c55e"
+                stroke-width="9" stroke-linecap="butt" stroke-dasharray="0 999"
+                transform="rotate(-90 42 42)"/>
+            </svg>
+            <div class="gv" style="flex-direction:column;font-size:11px;line-height:1.2">
+              <span id="v-word">--</span><b class="mono" id="v-pct" style="font-size:14px">--%</b></div>
+          </div>
+          <div class="legend" id="v-legend"></div>
+        </div>
+        <button class="link" id="modeldetail" style="margin-top:8px">モデル詳細 ›</button>
+      </div>
+      <div class="card" style="margin:0">
+        <div class="chead"><b>直近シグナル</b><span class="sub">(上位5件)</span></div>
+        <div id="siglist"><div class="empty" style="padding:18px 0">--</div></div>
+        <button class="link" id="sigall" style="margin-top:6px">シグナル一覧 ›</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="chead"><b>ニュース</b><span class="sub">(直近)</span></div>
+      <div id="newslist"><div class="empty" style="padding:18px 0">--</div></div>
+    </div>
+    <div class="powered">Powered by <b>藤井工藝</b> /本予測は統計的推定であり投資判断はご自身の責任でお願いします</div>
+  </div>
+
+  <!-- ============ 銘柄検索 ============ -->
+  <div class="view" id="v-search">
+    <h2 class="vt">銘柄検索</h2>
+    <div class="card"><div class="searchbox" style="border:0;padding:0;background:none">
+      <input id="symin2" placeholder="銘柄コードを入力 (例 7203, AAPL)" enterkeyhint="search">
+      <button class="link" id="go2">検索</button></div></div>
+    <div class="card"><div class="chead"><b>お気に入り</b>
+      <span class="sub" id="favcount"></span></div>
+      <div id="favlist"><div class="empty">お気に入りはまだありません<br>銘柄表示中に[+]をタップで追加</div></div>
+    </div>
+  </div>
+
+  <!-- ============ お気に入り ============ -->
+  <div class="view" id="v-favorites">
+    <h2 class="vt">お気に入り</h2>
+    <div class="card"><div class="chead"><b>登録銘柄</b>
+      <span class="sub" id="favcount2"></span></div>
+      <div id="favlist2"><div class="empty">お気に入りはまだありません<br>銘柄分析画面で[+]をタップで追加</div></div>
+    </div>
+  </div>
+
+  <!-- ============ スクリーニング ============ -->
+  <div class="view" id="v-screen">
+    <h2 class="vt">スクリーニング</h2>
+    <div class="card">
+      <div class="chead"><b>お気に入り一括分析</b>
+        <button class="link" id="runscreen">実行 ›</button></div>
+      <div class="note">お気に入り銘柄の現在値・騰落率・RSI・AI上昇確率を一括計算します。</div>
+      <div id="screenout" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><b>上昇候補スキャン</b><span class="sub">(日経225)</span></div>
+      <div class="frow"><span>条件モード</span>
+        <div class="seg2" id="sc-mode">
+          <button data-v="sig" class="on">▲シグナル</button>
+          <button data-v="btm">底値反転</button>
+          <button data-v="rev">逆張り</button>
+          <button data-v="mom">順張り</button></div></div>
+      <div class="frow"><span>表示件数</span>
+        <input type="number" id="sc-top" value="20" min="5" max="50"></div>
+      <button class="btn" id="sc-run" style="margin-top:12px">日経225をスキャン (約30〜60秒)</button>
+      <div class="note">▲シグナル: 日足チャートの▲強気シグナルが最新バーで点灯中の銘柄のみ抽出
+(チャート表示と同一判定・2年データ使用のため通信量やや多め)。<br>
+底値反転: 直近0〜2日に安値を付け、強気反転パターン・RSI底打ち等の
+「これから上がる兆し」がある銘柄を抽出。<br>
+※「上がる株を当てる」ものではなく条件合致候補の抽出です(方向的中率は偶然水準と実測済)。
+最終判断は個別チャートでご確認ください。</div>
+      <div id="sc-out" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- ============ アラート ============ -->
+  <div class="view" id="v-alerts">
+    <h2 class="vt">アラート</h2>
+    <div class="card">
+      <div class="chead"><b>新規アラート</b></div>
+      <div class="frow"><span>銘柄コード</span><input type="text" id="al-sym" placeholder="7203"></div>
+      <div class="frow"><span>条件</span>
+        <div class="seg2" id="al-cond">
+          <button data-v="above" class="on">以上で通知</button>
+          <button data-v="below">以下で通知</button></div></div>
+      <div class="frow"><span>価格</span><input type="number" id="al-price" placeholder="3000"></div>
+      <button class="btn" id="al-add" style="margin-top:12px">アラートを追加</button>
+      <div class="note">アプリを開いている間、約60秒ごとに監視して通知します。
+        通知許可を求められた場合は許可してください。</div>
+    </div>
+    <div class="card"><div class="chead"><b>登録済みアラート</b></div>
+      <div id="allist"><div class="empty">アラートはまだありません</div></div></div>
+  </div>
+
+  <!-- ============ 設定 ============ -->
+  <div class="view" id="v-settings">
+    <h2 class="vt">設定</h2>
+    <div class="card"><div class="chead"><b>データ取得</b></div>
+      <div class="frow"><span>CORSプロキシ</span>
+        <select id="set-proxy">
+          <option value="auto">自動 (フォールバック)</option>
+          <option value="corsproxy">corsproxy.io</option>
+          <option value="allorigins">allorigins.win</option>
+          <option value="custom">カスタム</option>
+        </select></div>
+      <div class="frow" id="customproxyrow" style="display:none">
+        <span>カスタムURL</span>
+        <input type="text" id="set-customproxy" placeholder="https://your-proxy/?url=" style="width:200px"></div>
+      <div class="frow"><span>自動更新 (現在値1分/短期足)</span>
+        <select id="set-live"><option value="1">オン</option><option value="0">オフ</option></select></div>
+      <div class="note">データはYahoo Financeの無料公開エンドポイントを使用。APIキー不要・課金なし。
+        ブラウザのCORS制限のため中継プロキシを経由します(自前のVercelプロキシも指定可)。</div>
+    </div>
+    <div class="card"><div class="chead"><b>このアプリについて</b></div>
+      <div class="note">StockSight PWA v1.0 / 藤井工藝<br>
+        6モデル・アンサンブル「Mirage Ensemble+」搭載<br>
+        較正済み: 68%帯内71% / 90%帯内91% (実測バックテスト n=300)<br>
+        方向的中率は偶然水準(約50%)です。リスク計測器としてご活用ください。</div>
+      <button class="btn ghost" id="clearcache" style="margin-top:12px">キャッシュ/設定を初期化</button>
+    </div>
+  </div>
+</div>
+
+<!-- チャート設定モーダル -->
+<div class="modal" id="cfgmodal"><div class="sheet">
+  <div class="grab"></div><h3>チャート設定</h3>
+  <div class="frow"><span>ボリンジャーバンド期間</span>
+    <input type="number" id="cfg-bbn" min="5" max="100" step="1"></div>
+  <div class="frow"><span>BB表示</span>
+    <select id="cfg-bbshow"><option value="1">±1/2/3σ</option>
+      <option value="2">±2σのみ</option><option value="0">非表示</option></select></div>
+  <div class="frow"><span>SMA 短期</span><input type="number" id="cfg-sma1" min="2" max="200"></div>
+  <div class="frow"><span>SMA 長期</span><input type="number" id="cfg-sma2" min="2" max="300"></div>
+  <div class="frow"><span>表示本数 (この時間軸)</span>
+    <input type="number" id="cfg-bars" min="20" max="300" step="5"></div>
+  <div class="frow"><span>シグナル▲▼</span>
+    <select id="cfg-sig"><option value="1">表示</option><option value="0">非表示</option></select></div>
+  <div class="frow"><span>パターン番号</span>
+    <select id="cfg-pat"><option value="1">表示</option><option value="0">非表示</option></select></div>
+  <button class="btn" id="cfg-apply" style="margin-top:14px">適用して再描画</button>
+</div></div>
+
+<!-- 汎用詳細モーダル -->
+<div class="modal" id="infomodal"><div class="sheet">
+  <div class="grab"></div><h3 id="info-title"></h3>
+  <div id="info-body" style="font-size:13px;line-height:1.9;white-space:pre-wrap"
+    class="mono"></div>
+</div></div>
+
+<!-- 詳細チャートモーダル (ローソク足+指標を時間軸同期で重ね表示) -->
+<div class="modal" id="dtlmodal"><div class="sheet" style="max-height:94vh">
+  <div class="grab"></div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <h3 style="margin:0;flex:1">詳細チャート <span class="sub" id="dtl-sym"></span></h3>
+  </div>
+  <div id="dtl-chips" style="display:flex;gap:6px;margin-bottom:8px">
+    <button class="chip on" data-p="rsi">RSI</button>
+    <button class="chip on" data-p="macd">MACD</button>
+    <button class="chip on" data-p="bb">BBσ</button>
+  </div>
+  <div class="sub mono" id="dtl-info" style="min-height:18px;margin-bottom:4px;font-size:11px">
+    チャートをなぞると十字線で各指標の値を確認できます</div>
+  <canvas id="dtlchart"></canvas>
+</div></div>
+
+
+<!-- 指標オーバーレイ拡大ビュー -->
+<div class="modal" id="indmodal"><div class="sheet" style="max-height:92vh">
+  <div class="grab"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h3 id="ind-title" style="margin:0">指標オーバーレイ</h3>
+    <button class="link" id="ind-close" style="font-size:20px;padding:0 6px">×</button>
+  </div>
+  <div id="ind-chips" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px"></div>
+  <canvas id="ind-canvas" style="width:100%;display:block;border-radius:10px"></canvas>
+  <div class="note" id="ind-note" style="margin-top:10px"></div>
+</div></div>
+
+<nav><div class="navin">
+  <button class="nbtn on" data-v="home">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 9L9 2l7 7M4 8v8h4v-4h2v4h4V8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    ホーム</button>
+  <button class="nbtn" data-v="search">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="7.5" cy="7.5" r="5" stroke="currentColor" stroke-width="1.6"/><line x1="11.5" y1="11.5" x2="16" y2="16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    銘柄検索</button>
+  <button class="nbtn" data-v="favorites">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><polygon points="9,2 11,7 17,7 12,11 14,17 9,13 4,17 6,11 1,7 7,7" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+    お気に入り</button>
+  <button class="nbtn" data-v="screen">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="2.5" rx="1.2" fill="currentColor"/><rect x="2" y="7.8" width="10" height="2.5" rx="1.2" fill="currentColor"/><rect x="2" y="12.5" width="7" height="2.5" rx="1.2" fill="currentColor"/><path d="M14 10l2 2-2 2M14 10l-2 2 2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    スキャン</button>
+  <button class="nbtn" data-v="alerts">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2a5 5 0 0 0-5 5v3l-1.5 2h13L14 10V7A5 5 0 0 0 9 2z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M7 14.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+    アラート</button>
+  <button class="nbtn" data-v="settings">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="2.8" stroke="currentColor" stroke-width="1.5"/><path d="M9 1v2M9 15v2M1 9h2M15 9h2M3.2 3.2l1.4 1.4M13.4 13.4l1.4 1.4M3.2 14.8l1.4-1.4M13.4 4.6l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    設定</button>
+</div></nav>
+<div class="toast" id="toast"></div>
+<script>
+'use strict';
+/* ============================================================
+   StockSight PWA - Mirage Ensemble+ (藤井工藝)
+   ============================================================ */
+
+/* ---------- 状態 / 設定 ---------- */
+const TF = {
+  '1m' :{label:'1分', interval:'1m', range:'1d',  bars:60,  fcLabel:'+3分',   horizon:'3分先'},
+  '5m' :{label:'5分', interval:'5m', range:'5d',  bars:60,  fcLabel:'+15m',  horizon:'15分先'},
+  '1d' :{label:'日足', interval:'1d', range:'2y',  bars:63,  fcLabel:'+3d',   horizon:'3営業日先'},
+  '1wk':{label:'週足', interval:'1wk', range:'5y', bars:60,  fcLabel:'+3w',   horizon:'3週先'},
+  '1mo':{label:'月足', interval:'1mo', range:'10y',bars:60,  fcLabel:'+3M',   horizon:'3ヶ月先'},
+};
+const VOL_CAL = 1.35, DRIFT_SHRINK = 0.5, SIG_STRONG = 0.05;
+const LS = {
+  get(k,d){ try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d} },
+  set(k,v){ try{localStorage.setItem(k,JSON.stringify(v))}catch(e){} }
+};
+const state = {
+  symbol: LS.get('ss_sym', null), tf: LS.get('ss_tf','1d'),
+  favs: LS.get('ss_favs', []), alerts: LS.get('ss_alerts', []),
+  cfg: Object.assign({bbn:20, bbshow:'1', sma1:5, sma2:25, sig:'1', pat:'1',
+        bars:{}, proxy:'auto', customproxy:'', live:'1'}, LS.get('ss_cfg', {})),
+  data:null, ens:null, patterns:[], signals:[], news:[],
+  busy:false, lastReport:'', lastModelReport:'',
+};
+function saveCfg(){ LS.set('ss_cfg', state.cfg); }
+function toast(msg, ms=2600){ const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'), ms); }
+const $ = id => document.getElementById(id);
+const fmt = (v,d=1) => v==null?'--':v.toLocaleString('ja-JP',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* ---------- データ取得 (CORSプロキシ経由) ---------- */
+function proxies(){
+  const list = {
+    corsproxy:  u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+    allorigins: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+  };
+  const p = state.cfg.proxy;
+  if (p==='custom' && state.cfg.customproxy)
+    return [u => state.cfg.customproxy + encodeURIComponent(u)];
+  if (list[p]) return [list[p]];
+  return [list.corsproxy, list.allorigins];
+}
+async function getJSON(url){
+  let lastErr;
+  for (const wrap of proxies()){
+    try{
+      const r = await fetch(wrap(url), {cache:'no-store'});
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      return await r.json();
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr || new Error('取得失敗');
+}
+function normSym(code){
+  code = (code||'').trim().toUpperCase();
+  if (/^\d+$/.test(code)) return code + '.T';
+  return code;
+}
+async function yChart(symbol, interval, range){
+  const u = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${interval}&range=${range}`;
+  const j = await getJSON(u);
+  const res = j.chart.result[0], q = res.indicators.quote[0];
+  const o=[],h=[],l=[],c=[],ts=[],v=[];
+  for (let i=0;i<res.timestamp.length;i++){
+    if (q.open[i]!=null&&q.high[i]!=null&&q.low[i]!=null&&q.close[i]!=null){
+      o.push(q.open[i]); h.push(q.high[i]); l.push(q.low[i]); c.push(q.close[i]);
+      v.push(q.volume&&q.volume[i]!=null?q.volume[i]:0);
+      ts.push(res.timestamp[i]);
+    }
+  }
+  return {o,h,l,c,v,ts, meta:res.meta||{}};
+}
+async function yQuote(symbol){
+  const j = await getJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`);
+  const m = j.chart.result[0].meta||{};
+  return {price:m.regularMarketPrice, prev:m.chartPreviousClose||m.previousClose,
+          name:m.shortName||symbol, time:m.regularMarketTime};
+}
+async function yNews(symbol){
+  try{
+    const j = await getJSON(`https://query1.finance.yahoo.com/v1/finance/search?q=${symbol}&newsCount=8&quotesCount=0`);
+    return (j.news||[]).map(n=>({title:n.title,
+      t:n.providerPublishTime?new Date(n.providerPublishTime*1000):null}));
+  }catch(e){ return []; }
+}
+
+/* ---------- 数学 / 指標 ---------- */
+const sum=a=>a.reduce((x,y)=>x+y,0), mean=a=>sum(a)/a.length;
+function std(a,ddof=1){ const m=mean(a);
+  return Math.sqrt(sum(a.map(x=>(x-m)*(x-m)))/(a.length-ddof)); }
+const normCdf = z => 0.5*(1+erf(z/Math.SQRT2));
+function erf(x){ const s=x<0?-1:1; x=Math.abs(x);
+  const t=1/(1+0.3275911*x);
+  const y=1-((((1.061405429*t-1.453152027)*t+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);
+  return s*y; }
+function invNorm(p){ p=Math.min(Math.max(p,1e-6),1-1e-6);
+  const a=[-39.69683028665376,220.9460984245205,-275.9285104469687,138.357751867269,-30.66479806614716,2.506628277459239],
+        b=[-54.47609879822406,161.5858368580409,-155.6989798598866,66.80131188771972,-13.28068155288572],
+        c=[-0.007784894002430293,-0.3223964580411365,-2.400758277161838,-2.549732539343734,4.374664141464968,2.938163982698783],
+        d=[0.007784695709041462,0.3224671290700398,2.445134137142996,3.754408661907416],
+        pl=0.02425;
+  if (p<pl){ const q=Math.sqrt(-2*Math.log(p));
+    return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+  if (p>1-pl){ const q=Math.sqrt(-2*Math.log(1-p));
+    return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+  const q=p-0.5, r=q*q;
+  return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+}
+function ema(x,n){ const a=2/(n+1), out=new Array(x.length); out[0]=x[0];
+  for(let i=1;i<x.length;i++) out[i]=a*x[i]+(1-a)*out[i-1]; return out; }
+function smaArr(x,n){ if(x.length<n) return null;
+  const xi=[], v=[]; let s=0;
+  for(let i=0;i<x.length;i++){ s+=x[i]; if(i>=n) s-=x[i-n];
+    if(i>=n-1){ xi.push(i); v.push(s/n);} }
+  return {xi,v}; }
+function bollinger(x,n){ if(x.length<n) return null;
+  const xi=[],mid=[],sd=[];
+  for(let i=n-1;i<x.length;i++){ const w=x.slice(i-n+1,i+1), m=mean(w);
+    xi.push(i); mid.push(m);
+    sd.push(Math.sqrt(sum(w.map(v=>(v-m)*(v-m)))/n)); }
+  return {xi,mid,sd}; }
+function rsiArr(c,n=14){ const out=new Array(c.length).fill(50);
+  let au=0,ad=0;
+  for(let i=1;i<c.length;i++){ const d=c[i]-c[i-1],up=Math.max(d,0),dn=Math.max(-d,0);
+    if(i===1){au=up;ad=dn;} else {au=(au*(n-1)+up)/n; ad=(ad*(n-1)+dn)/n;}
+    out[i]=100-100/(1+au/Math.max(ad,1e-9)); }
+  return out; }
+function macdArr(c,f=12,s=26,g=9){ const ef=ema(c,f),es=ema(c,s);
+  const line=ef.map((v,i)=>v-es[i]); const sig=ema(line,g);
+  return {line,sig,hist:line.map((v,i)=>v-sig[i])}; }
+function ewmaVol(r,lam=0.94){ let v=r[0]*r[0];
+  for(let i=1;i<r.length;i++) v=lam*v+(1-lam)*r[i]*r[i];
+  return Math.sqrt(v); }
+function effVol(r){ const recent=r.slice(-20);
+  return VOL_CAL*Math.max(ewmaVol(r), recent.length>=20?std(recent):0); }
+function logRet(c){ const r=new Array(c.length-1);
+  for(let i=1;i<c.length;i++) r[i-1]=Math.log(c[i]/c[i-1]); return r; }
+
+/* ---------- Mirage Ensemble+ (6モデル) ---------- */
+function m1Bootstrap(r, steps, nSims=2500){
+  if (r.length<40) return null;
+  const block=3, nblk=Math.ceil(steps/block), scale=effVol(r)/Math.max(std(r),1e-9), m=mean(r);
+  const cums=new Float64Array(nSims), samples=[];
+  for(let s=0;s<nSims;s++){
+    const path=new Float64Array(steps); let k=0;
+    for(let b=0;b<nblk;b++){ const st=(Math.random()*(r.length-block))|0;
+      for(let j=0;j<block&&k<steps;j++,k++) path[k]=(r[st+j]-m)*scale+m; }
+    let cs=0; for(let j=0;j<steps;j++) cs+=path[j];
+    cums[s]=cs; samples.push(path);
+  }
+  let up=0; for(const v of cums) if(v>0) up++;
+  return {pUp:up/nSims, samples};
+}
+function m2Knn(r, steps, window=10, k=25){
+  const nHist=r.length-window-steps; if(nHist<60) return null;
+  const tgt=r.slice(-window), tm=mean(tgt), ts=std(tgt)+1e-9;
+  const tz=tgt.map(v=>(v-tm)/ts);
+  const dists=[];
+  for(let i=0;i<nHist;i++){
+    const w=r.slice(i,i+window), wm=mean(w), ws=std(w)+1e-9;
+    let d=0; for(let j=0;j<window;j++){ const e=(w[j]-wm)/ws-tz[j]; d+=e*e; }
+    dists.push([d,i]);
+  }
+  dists.sort((a,b)=>a[0]-b[0]);
+  const fut=dists.slice(0,k).map(([,i])=>sum(r.slice(i+window,i+window+steps)));
+  const nUp=fut.filter(v=>v>0).length;
+  return {pUp:nUp/fut.length, nUp, k:fut.length};
+}
+function m3Ar1(r, steps){
+  if(r.length<30) return null;
+  const a=r.slice(0,-1), b=r.slice(1), ma=mean(a), mb=mean(b);
+  let cov=0,va=0,vb=0;
+  for(let i=0;i<a.length;i++){ cov+=(a[i]-ma)*(b[i]-mb); va+=(a[i]-ma)**2; vb+=(b[i]-mb)**2; }
+  const rho=cov/Math.sqrt(Math.max(va*vb,1e-18));
+  const sig=Math.max(std(r),1e-9);
+  let eCum=0; for(let i=1;i<=steps;i++) eCum+=r[r.length-1]*Math.pow(rho,i);
+  const regime = rho>0.05?'モメンタム':rho<-0.05?'平均回帰':'ランダム的';
+  return {pUp:normCdf(eCum/(sig*Math.sqrt(steps))), rho, regime};
+}
+function m4Technical(c, bbn=20){
+  let score=0; const reasons=[];
+  const rs=rsiArr(c)[c.length-1];
+  if(rs<30){score+=2;reasons.push(`RSI ${rs.toFixed(0)} 売られすぎ`);}
+  else if(rs>70){score-=2;reasons.push(`RSI ${rs.toFixed(0)} 買われすぎ`);}
+  else reasons.push(`RSI ${rs.toFixed(0)} 中立圏`);
+  const {line,sig,hist}=macdArr(c); const n=c.length-1;
+  if(line[n]>sig[n]&&hist[n]>hist[n-1]){score+=2;reasons.push('MACD GX継続・拡大');}
+  else if(line[n]<sig[n]&&hist[n]<hist[n-1]){score-=2;reasons.push('MACD DX継続・縮小');}
+  if(c.length>25){
+    const s5=mean(c.slice(-5)), s25=mean(c.slice(-25));
+    if(s5>s25){score+=1;reasons.push('SMA短期>長期 上昇トレンド');}
+    else {score-=1;reasons.push('SMA短期<長期 下降トレンド');}
+  }
+  let bbDev=null;
+  const bb=bollinger(c,bbn);
+  if(bb){ const i=bb.mid.length-1;
+    bbDev=(c[c.length-1]-bb.mid[i])/Math.max(bb.sd[i],1e-9);
+    if(bbDev<=-2){score+=bbDev<=-3?2:1;reasons.push(`BB ${bbDev.toFixed(1)}σ 反発候補`);}
+    else if(bbDev>=2){score-=bbDev>=3?2:1;reasons.push(`BB +${bbDev.toFixed(1)}σ 過熱警戒`);}
+    else reasons.push(`BB ${bbDev>=0?'+':''}${bbDev.toFixed(1)}σ バンド内`);
+  }
+  score += c[c.length-1]>c[c.length-2]?1:-1;
+  return {pUp:1/(1+Math.exp(-0.35*score)), score, reasons, rsi:rs, bbDev,
+          macdUp:line[n]>sig[n], macdGrow:hist[n]>hist[n-1]};
+}
+const POS_W=['上方修正','増益','最高益','増配','好調','急騰','買い','上昇','回復','拡大','提携','受注',
+  'beat','surge','rise','gain','upgrade','record','growth','buy','jump','rally'];
+const NEG_W=['下方修正','減益','赤字','減配','不振','急落','売り','下落','懸念','縮小','リコール','訴訟',
+  'miss','fall','drop','loss','downgrade','cut','sell','plunge','lawsuit','recall'];
+function m5News(titles){
+  let pos=0,neg=0;
+  for(const t of titles){ const tl=t.toLowerCase();
+    for(const w of POS_W) if(tl.includes(w.toLowerCase())) pos++;
+    for(const w of NEG_W) if(tl.includes(w.toLowerCase())) neg++; }
+  return {pUp:(pos+1)/(pos+neg+2), pos, neg};
+}
+async function m6Macro(symbol){
+  if(!symbol.endsWith('.T')) return null;   // 為替βは日本株のみ
+  try{
+    const [st, ni, fx] = await Promise.all([
+      yChart(symbol,'1d','2y'), yChart('^N225','1d','2y'), yChart('JPY=X','1d','2y')]);
+    const dkey = ts => { const d=new Date((ts+32400)*1000);
+      return d.getUTCFullYear()*10000+(d.getUTCMonth()+1)*100+d.getUTCDate(); };
+    const map = ch => { const m=new Map();
+      ch.ts.forEach((t,i)=>m.set(dkey(t), ch.c[i])); return m; };
+    const ms=map(st), mn=map(ni), mf=map(fx);
+    const dates=[...ms.keys()].filter(d=>mn.has(d)&&mf.has(d)).sort((a,b)=>a-b);
+    if(dates.length<120) return null;
+    const s=dates.map(d=>ms.get(d)), n2=dates.map(d=>mn.get(d)), f=dates.map(d=>mf.get(d));
+    const rs=logRet(s), rn=logRet(n2), rf=logRet(f);
+    const beta=(x,y)=>{ const mx=mean(x),my=mean(y); let c=0,v=0;
+      for(let i=0;i<x.length;i++){c+=(x[i]-mx)*(y[i]-my); v+=(y[i]-my)**2;} return c/Math.max(v,1e-18); };
+    const corr=(x,y)=>{ const mx=mean(x),my=mean(y); let c=0,vx=0,vy=0;
+      for(let i=0;i<x.length;i++){c+=(x[i]-mx)*(y[i]-my);vx+=(x[i]-mx)**2;vy+=(y[i]-my)**2;}
+      return c/Math.sqrt(Math.max(vx*vy,1e-18)); };
+    const bN=beta(rs,rn), cN=corr(rs,rn), bF=beta(rs,rf), cF=corr(rs,rf);
+    const lastD=dates[dates.length-1];
+    const newer=[...mf.keys()].filter(d=>d>lastD).sort((a,b)=>a-b);
+    const fxMove = newer.length ? Math.log(mf.get(newer[newer.length-1])/mf.get(lastD)) : 0;
+    const sig=Math.max(std(rs),1e-9), drift=bF*fxMove;
+    const fxType = cF>0.15?'円安メリット(輸出型)':cF<-0.15?'円高メリット(内需型)':'為替中立';
+    return {pUp: Math.abs(fxMove)>1e-9?normCdf(drift/sig):0.5,
+            betaN:bN, corrN:cN, betaF:bF, corrF:cF, fxMove, drift, fxType};
+  }catch(e){ return null; }
+}
+
+function ensemble(closeFull, steps, m5res, m6res){
+  const r=logRet(closeFull), s0=closeFull[closeFull.length-1];
+  const m1=m1Bootstrap(r,steps), m2=m2Knn(r,steps),
+        m3=m3Ar1(r,steps), m4=m4Technical(closeFull, state.cfg.bbn);
+  const votes=[],ws=[],detail=[];
+  const add=(m,w,label,info)=>{ if(m){votes.push(m.pUp);ws.push(w);
+    detail.push({label,p:m.pUp,info});} };
+  add(m1,0.22,'[M1] ブートストラップMC','実分布再標本化');
+  add(m2,0.27,'[M2] パターン類似kNN', m2?`類似${m2.k}局面中${m2.nUp}件上昇`:'');
+  add(m3,0.09,'[M3] 自己相関AR(1)', m3?`ρ=${m3.rho.toFixed(2)} ${m3.regime}`:'');
+  add(m4,0.18,'[M4] テクニカル',`スコア${m4.score>=0?'+':''}${m4.score}`);
+  add(m5res,0.13,'[M5] ニュースKW',`P:${m5res.pos}/N:${m5res.neg}`);
+  add(m6res,0.11,'[M6] マクロ相関', m6res?`夜間FX ${(m6res.fxMove*100).toFixed(2)}%`:'');
+  const wsum=sum(ws), w=ws.map(v=>v/wsum);
+  const pEns=sum(votes.map((v,i)=>v*w[i]));
+  const spread=Math.max(...votes)-Math.min(...votes);
+  const conf= spread<0.15?'高':spread<0.30?'中':'低';
+  // ファン生成 (較正済みドリフト注入)
+  const pFan=0.5+DRIFT_SHRINK*(pEns-0.5);
+  const sigma=effVol(r), d=invNorm(pFan)*sigma/Math.sqrt(steps);
+  const samples = m1?m1.samples:Array.from({length:2500},()=>
+    Array.from({length:steps},()=>sigma*(Math.random()*2-1)));
+  let gm=0; for(const p of samples) for(const v of p) gm+=v;
+  gm/=samples.length*steps;
+  const finals=[], paths=[];
+  for(const p of samples){
+    const path=new Array(steps); let cum=0;
+    for(let j=0;j<steps;j++){ cum+=p[j]-gm+d; path[j]=s0*Math.exp(cum); }
+    paths.push(path); finals.push(path[steps-1]);
+  }
+  const pct=(arr,q)=>{ const a=[...arr].sort((x,y)=>x-y);
+    return a[Math.min(a.length-1, Math.floor(q*a.length))]; };
+  const fan={med:[],p16:[],p84:[],p5:[],p95:[]};
+  for(let j=0;j<steps;j++){
+    const col=paths.map(p=>p[j]);
+    fan.med.push(pct(col,0.5)); fan.p16.push(pct(col,0.16)); fan.p84.push(pct(col,0.84));
+    fan.p5.push(pct(col,0.05)); fan.p95.push(pct(col,0.95));
+  }
+  const verdict = pEns>=0.62?'強気 ↗↗':pEns>=0.53?'やや強気 ↗':
+                  pEns>=0.45?'やや弱気 ↘':pEns<0.38?'弱気 ↘↘':'やや弱気 ↘';
+  return {pEns, conf, confPct:(1-spread)*100, verdict, fan, sigma, steps,
+          detail, m4, votes};
+}
+
+/* ---------- シグナル走査 (各バー時点・翌足) ---------- */
+function signalProb(c, bbn){
+  const r=logRet(c); if(r.length<60) return null;
+  const m1=m1Bootstrap(r,1,400), m2=m2Knn(r,1), m3=m3Ar1(r,1), m4=m4Technical(c,bbn);
+  const vs=[],ws=[];
+  if(m1){vs.push(m1.pUp);ws.push(0.25);}
+  if(m2){vs.push(m2.pUp);ws.push(0.30);}
+  if(m3){vs.push(m3.pUp);ws.push(0.10);}
+  vs.push(m4.pUp);ws.push(0.20);
+  const t=sum(ws);
+  return sum(vs.map((v,i)=>v*ws[i]/t));
+}
+function computeSignals(closeFull, nDisp, bbn){
+  const start=closeFull.length-nDisp, out=[];
+  for(let i=0;i<nDisp;i++){
+    const p=signalProb(closeFull.slice(0,start+i+1), bbn);
+    if(p!=null && Math.abs(p-0.5)>=SIG_STRONG) out.push([i,p]);
+  }
+  return out;
+}
+
+/* ---------- ローソク足パターン認識 (candle_patterns.py 移植) ---------- */
+function detectPatterns(o,h,l,c){
+  const n=c.length; if(n<12) return [];
+  const body=c.map((v,i)=>Math.abs(v-o[i])),
+        rng=h.map((v,i)=>Math.max(v-l[i],1e-9)),
+        up=h.map((v,i)=>v-Math.max(o[i],c[i])),
+        lo=o.map((v,i)=>Math.min(v,c[i])-l[i]),
+        bull=c.map((v,i)=>v>=o[i]);
+  const roll=(arr,k)=>arr.map((_,i)=>mean(arr.slice(Math.max(0,i-k),i+1)));
+  const ab=roll(body,14), ar=roll(rng,14);
+  const sma25=roll(c,24);
+  const trend=(i,k)=>{ const j=Math.max(0,i-k); if(i<=0)return 0;
+    if(c[i]>c[j]*1.01)return 1; if(c[i]<c[j]*0.99)return -1; return 0; };
+  const res=[], seen=new Set();
+  const add=(i,name,dir,grp)=>{ const key=i+'|'+name;
+    if(!seen.has(key)&&i>=0&&i<n){seen.add(key);res.push({i,name,dir,grp});} };
+  const big=i=>body[i]>=1.6*Math.max(ab[Math.max(0,i-1)],1e-9);
+  const small=i=>body[i]<=0.45*Math.max(ab[Math.max(0,i-1)],1e-9);
+  const doji=i=>body[i]<=0.10*rng[i];
+
+  /* 単体 */
+  for(let i=6;i<n;i++){
+    const t=trend(i-1,5), r=rng[i],b=body[i],u=up[i],L=lo[i];
+    const ham=L>=0.55*r&&u<=0.15*r&&b<=0.35*r&&!doji(i);
+    const inv=u>=0.55*r&&L<=0.15*r&&b<=0.35*r&&!doji(i);
+    if(doji(i)){
+      if(L>=0.6*r&&u<=0.12*r) add(i,'トンボ',t<0?1:0,'単体');
+      else if(u>=0.6*r&&L<=0.12*r) add(i,'墓石',t>0?-1:0,'単体');
+      else add(i,'十字線',0,'単体');
+    } else if(u<=0.05*r&&L<=0.05*r&&b>=0.9*r&&big(i))
+      add(i,bull[i]?'坊主陽線':'坊主陰線',bull[i]?1:-1,'単体');
+    else if(big(i)) add(i,bull[i]?'大陽線':'大陰線',bull[i]?1:-1,'単体');
+    else if(ham){ if(t<0)add(i,'ハンマー',1,'単体');
+      else if(t>0)add(i,'首吊り線',-1,'単体');
+      else if(bull[i]&&L>=2*Math.max(b,1e-9))add(i,'下影陽線',1,'単体'); }
+    else if(inv){ if(t<0)add(i,'逆ハンマー',1,'単体');
+      else if(t>0)add(i,'流れ星',-1,'単体');
+      else if(!bull[i]&&u>=2*Math.max(b,1e-9))add(i,'上影陰線',-1,'単体'); }
+    else if(bull[i]&&L>=2*b&&L>=0.4*r) add(i,'下影陽線',1,'単体');
+    else if(!bull[i]&&u>=2*b&&u>=0.4*r) add(i,'上影陰線',-1,'単体');
+    else if(b<=0.35*r&&u>=0.2*r&&L>=0.2*r) add(i,'コマ',0,'単体');
+  }
+  /* 2本組 */
+  for(let i=7;i<n;i++){
+    const t=trend(i-2,5),p=i-1,q=i;
+    const phi=Math.max(o[p],c[p]),plo=Math.min(o[p],c[p]),
+          qhi=Math.max(o[q],c[q]),qlo=Math.min(o[q],c[q]),
+          midP=(o[p]+c[p])/2;
+    if(bull[q]&&!bull[p]&&qhi>=phi&&qlo<=plo&&body[q]>body[p]) add(q,'陽の包み足',1,'2本');
+    else if(!bull[q]&&bull[p]&&qhi>=phi&&qlo<=plo&&body[q]>body[p]) add(q,'陰の包み足',-1,'2本');
+    else if(body[p]>=1.2*ab[p]&&qhi<=phi&&qlo>=plo){
+      if(doji(q)) add(q,'はらみ寄せ線',!bull[p]?1:-1,'2本');
+      else if(!bull[p]&&bull[q]&&body[q]<=0.6*body[p]) add(q,'陽のはらみ線',1,'2本');
+      else if(bull[p]&&!bull[q]&&body[q]<=0.6*body[p]) add(q,'陰のはらみ線',-1,'2本');
+    }
+    else if(!bull[p]&&bull[q]&&o[q]<l[p]){
+      if(c[q]>midP&&c[q]<o[p]) add(q,'切り込み線',1,'2本');
+      else if(c[q]>c[p]&&c[q]<=midP) add(q,'差し込み線',-1,'2本');
+    }
+    else if(bull[p]&&!bull[q]&&o[q]>h[p]&&c[q]<midP&&c[q]>o[p]) add(q,'黒雲',-1,'2本');
+    else if(bull[p]&&!bull[q]&&o[q]>c[p]&&c[q]>=midP&&c[q]<c[p]) add(q,'被せ線',-1,'2本');
+    if(t<0&&h[q]<c[p]&&lo[q]>=0.55*rng[q]&&up[q]<=0.15*rng[q]&&body[q]<=0.35*rng[q])
+      add(q,'たくり線',1,'2本');
+    if(bull[p]!==bull[q]&&Math.abs(c[q]-c[p])<=0.08*ar[q])
+      add(q,'出会い線',bull[q]?1:-1,'2本');
+    if(!bull[p]&&bull[q]&&o[q]>c[p]&&c[q]>o[p]&&o[q]>o[p]) add(q,'行き違い線',1,'2本');
+    else if(bull[p]&&!bull[q]&&o[q]<c[p]&&c[q]<o[p]&&o[q]<o[p]) add(q,'行き違い線',-1,'2本');
+  }
+  /* 3本組 */
+  for(let i=8;i<n;i++){
+    const a=i-2,b3=i-1,q=i,
+          tL=trend(a-1,15), tS=trend(a-1,4),
+          ahi=Math.max(o[a],c[a]),alo=Math.min(o[a],c[a]),
+          bhi=Math.max(o[b3],c[b3]),blo=Math.min(o[b3],c[b3]),
+          midA=(o[a]+c[a])/2;
+    if(!bull[a]&&big(a)&&bhi<c[a]&&small(b3)&&bull[q]&&c[q]>midA)
+      add(q, doji(b3)&&bhi<Math.min(c[a],o[q])?'三川明けの明星':'明けの明星',1,'3本');
+    if(bull[a]&&big(a)&&blo>c[a]&&small(b3)&&!bull[q]&&c[q]<midA)
+      add(q, doji(b3)&&blo>Math.max(c[a],o[q])?'三川宵の明星':'宵の明星',-1,'3本');
+    const allB=[a,b3,q].every(k=>bull[k]), allS=[a,b3,q].every(k=>!bull[k]),
+          bodyOK=[a,b3,q].every(k=>body[k]>=0.6*ab[k]);
+    if(allB&&c[a]<c[b3]&&c[b3]<c[q]&&o[b3]>=alo&&o[b3]<=ahi&&o[q]>=blo&&o[q]<=bhi&&bodyOK)
+      add(q, tL>0&&tS<0?'三兵押し目':'赤三兵',1,'3本');
+    if(allS&&c[a]>c[b3]&&c[b3]>c[q]&&o[b3]>=alo&&o[b3]<=ahi&&o[q]>=blo&&o[q]<=bhi&&bodyOK)
+      add(q, tL<0&&tS>0?'三羽戻り':'三羽烏',-1,'3本');
+    if([a,b3,q].every(k=>l[k]>h[k-1])&&allB) add(q,'三空踏み上げ',-1,'3本');
+    if([a,b3,q].every(k=>h[k]<l[k-1])&&allS) add(q,'三空叩き込み',1,'3本');
+    if([a,b3,q].every(k=>bull[k]&&body[k]>=1.4*ab[k])) add(q,'三手大陽線',-1,'3本');
+    if([a,b3,q].every(k=>!bull[k]&&body[k]>=1.4*ab[k])) add(q,'三手大陰線',1,'3本');
+  }
+  /* 継続 + 窓 */
+  const gaps=[];
+  for(let i=1;i<n;i++){
+    if(l[i]>h[i-1]&&l[i]-h[i-1]>=0.45*ar[i]) gaps.push({i,dir:'up',hi:l[i],lo:h[i-1]});
+    else if(h[i]<l[i-1]&&l[i-1]-h[i]>=0.45*ar[i]) gaps.push({i,dir:'dn',hi:l[i-1],lo:h[i]});
+  }
+  for(let i=10;i<n;i++){
+    const f=i-4, mids=[f+1,f+2,f+3];
+    const inRange=mids.every(k=>l[k]>=l[f]-0.1*ar[i]&&h[k]<=h[f]+0.1*ar[i]),
+          smallMids=mids.every(k=>small(k)||body[k]<body[f]*0.5);
+    if(bull[f]&&big(f)&&bull[i]&&big(i)&&c[i]>c[f]&&smallMids&&inRange) add(i,'上げ三法',1,'継続');
+    if(!bull[f]&&big(f)&&!bull[i]&&big(i)&&c[i]<c[f]&&smallMids&&inRange) add(i,'下げ三法',-1,'継続');
+    if(trend(i-2,8)>0&&o[i-1]>c[i-2]&&!bull[i-1]&&!bull[i]&&o[i]>=o[i-1]&&c[i]<c[i-1]&&c[i]>c[i-2])
+      add(i,'上放れ二羽烏',-1,'継続');
+    if(trend(i-2,8)<0&&h[i-1]<l[i-2]&&!bull[i-1]&&!bull[i]) add(i,'下放れ二本黒',-1,'継続');
+    const p2=i-2,p1=i-1;
+    if(body[p2]>=1.2*ab[p2]&&Math.max(o[p1],c[p1])<=Math.max(o[p2],c[p2])
+       &&Math.min(o[p1],c[p1])>=Math.min(o[p2],c[p2])){
+      if(c[i]>Math.max(h[p1],h[p2])) add(i,'はらみ上放れ',1,'継続');
+      else if(c[i]<Math.min(l[p1],l[p2])) add(i,'はらみ下放れ',-1,'継続');
+    }
+    const wh=Math.max(...h.slice(i-7,i)), wl=Math.min(...l.slice(i-7,i));
+    if(wh-wl<=2.2*ar[i]){
+      if(c[i]>wh+0.1*ar[i]) add(i,'持ち合い放れ(上)',1,'継続');
+      else if(c[i]<wl-0.1*ar[i]) add(i,'持ち合い放れ(下)',-1,'継続');
+    }
+  }
+  const std20=c.map((_,i)=>{ const w=c.slice(Math.max(0,i-19),i+1);
+    const m=mean(w); return Math.sqrt(sum(w.map(v=>(v-m)*(v-m)))/w.length); });
+  for(let gi=0; gi<gaps.length; gi++){
+    const {i,dir,hi,lo:glo}=gaps[gi]; if(i<10) continue;
+    const t=trend(i-1,8),
+          wh=Math.max(...h.slice(Math.max(0,i-10),i)),
+          wl=Math.min(...l.slice(Math.max(0,i-10),i)),
+          consol=wh-wl<=2.5*ar[i],
+          ext=Math.abs(c[i-1]-sma25[i-1])>2.2*Math.max(std20[i-1],1e-9);
+    if(dir==='up'){
+      if(consol&&l[i]>wh) add(i,'ブレイクアウェイG(上)',1,'窓');
+      else if(t>0&&ext) add(i,'エグゾースションG(上)',-1,'窓');
+      else if(t>0) add(i,'ランナウェイG(上)',1,'窓');
+      else add(i,'ギャップアップ',1,'窓');
+      if(bull[i]&&t>0&&c[i]>h[i-1]+0.3*ar[i]) add(i,'窓開け継続(上)',1,'継続');
+    } else {
+      if(consol&&h[i]<wl) add(i,'ブレイクアウェイG(下)',-1,'窓');
+      else if(t<0&&ext) add(i,'エグゾースションG(下)',1,'窓');
+      else if(t<0) add(i,'ランナウェイG(下)',-1,'窓');
+      else add(i,'ギャップダウン',-1,'窓');
+      if(!bull[i]&&t<0&&c[i]<l[i-1]-0.3*ar[i]) add(i,'窓開け継続(下)',-1,'継続');
+    }
+    for(let j=i+1;j<Math.min(i+11,n);j++){
+      if(dir==='up'?l[j]<=glo:h[j]>=hi){ add(j,'窓埋め',0,'継続'); break; }
+    }
+    for(let g2=gi+1; g2<gaps.length; g2++){
+      if(gaps[g2].i-i<=8 && gaps[g2].dir!==dir){
+        add(gaps[g2].i,'アイランドリバーサル',dir==='up'?-1:1,'窓'); break; }
+    }
+  }
+  /* 酒田: 三山/三尊/逆三尊 */
+  const peaks=(arr,mode)=>{ const pk=[];
+    for(let i=2;i<n-2;i++){ const seg=arr.slice(i-2,i+3);
+      if(mode==='hi'&&arr[i]===Math.max(...seg)&&arr[i]>arr[i-2]&&arr[i]>arr[i+2]) pk.push(i);
+      if(mode==='lo'&&arr[i]===Math.min(...seg)&&arr[i]<arr[i-2]&&arr[i]<arr[i+2]) pk.push(i); }
+    return pk; };
+  const hp=peaks(h,'hi'), lp=peaks(l,'lo');
+  if(hp.length>=3){ const [p1,p2,p3]=hp.slice(-3);
+    if(p2-p1>=3&&p3-p2>=3&&n-1-p3<=12){
+      const v1=h[p1],v2=h[p2],v3=h[p3], avg=(v1+v2+v3)/3;
+      if(Math.max(v1,v2,v3)/Math.min(v1,v2,v3)<=1.03) add(p3,'三山',-1,'酒田');
+      else if(v2>v1*1.01&&v2>v3*1.01&&Math.abs(v1-v3)/avg<=0.03) add(p3,'三尊天井',-1,'酒田');
+    } }
+  if(lp.length>=3){ const [p1,p2,p3]=lp.slice(-3);
+    if(p2-p1>=3&&p3-p2>=3&&n-1-p3<=12){
+      const v1=l[p1],v2=l[p2],v3=l[p3], avg=(v1+v2+v3)/3;
+      if(v2<v1*0.99&&v2<v3*0.99&&Math.abs(v1-v3)/avg<=0.03) add(p3,'逆三尊',1,'酒田');
+    } }
+  /* 整理: 同名連続間引き → 優先度 → 上限 */
+  res.sort((x,y)=> x.name===y.name ? x.i-y.i : (x.name<y.name?-1:1));
+  const dedup=[], last={};
+  for(const d of res){
+    if(last[d.name]!=null && d.i-last[d.name]<=2){ last[d.name]=d.i; continue; }
+    last[d.name]=d.i; dedup.push(d);
+  }
+  const PRIO={'酒田':0,'3本':1,'継続':2,'2本':3,'窓':4,'単体':5};
+  const prio=d=> d.name==='窓埋め'?8:(PRIO[d.grp]??9);
+  dedup.sort((x,y)=> prio(x)-prio(y) || y.i-x.i);
+  const out=dedup.slice(0,28);
+  out.sort((x,y)=>x.i-y.i);
+  return out;
+}
+
+/* ---------- チャート描画 (canvas) ---------- */
+function drawChart(){
+  const cv=$('chart'), d=state.data;
+  if(!d){ return; }
+  const cfg=state.cfg, ens=state.ens;
+  const W=cv.clientWidth||cv.parentElement.clientWidth-8;
+  const H=Math.round(W*0.95), dpr=window.devicePixelRatio||1;
+  cv.style.height=H+'px'; cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const o=d.o,h=d.h,l=d.l,c=d.c,ts=d.ts, n=c.length;
+  const steps=ens?ens.steps:0;
+  const padL=44, padR=44, padT=10, padB=22;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const xTot=n+steps+1;
+  const X=i=>padL+(i+0.5)*plotW/xTot;
+  // y range: candles + BB + fan
+  let yMin=Math.min(...l), yMax=Math.max(...h);
+  const bb=cfg.bbshow!=='0'?bollinger(c,cfg.bbn):null;
+  if(bb){ const kMax=cfg.bbshow==='2'?2:3;
+    yMin=Math.min(yMin,...bb.mid.map((m,i)=>m-kMax*bb.sd[i]));
+    yMax=Math.max(yMax,...bb.mid.map((m,i)=>m+kMax*bb.sd[i])); }
+  if(ens){ yMin=Math.min(yMin,...ens.fan.p5); yMax=Math.max(yMax,...ens.fan.p95); }
+  const yPad=(yMax-yMin)*0.05; yMin-=yPad; yMax+=yPad;
+  const Y=v=>padT+plotH*(1-(v-yMin)/(yMax-yMin));
+  // grid + y labels
+  ctx.font='9px Roboto Mono'; ctx.fillStyle='#5a6478'; ctx.strokeStyle='rgba(255,255,255,.05)';
+  const yt=5;
+  for(let k=0;k<=yt;k++){ const v=yMin+(yMax-yMin)*k/yt, y=Y(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.fillText(v>=1000?Math.round(v).toLocaleString():v.toFixed(v<10?2:1), 2, y+3); }
+  // BB bands
+  if(bb){
+    const kList=cfg.bbshow==='2'?[[2,'#f59e0b',.10]]:
+      [[1,'#22c55e',.12],[2,'#f59e0b',.07],[3,'#ef4444',.05]];
+    let prevUp=bb.mid, prevLo=bb.mid;
+    for(const [k,col,al] of kList){
+      const up=bb.mid.map((m,i)=>m+k*bb.sd[i]), lo2=bb.mid.map((m,i)=>m-k*bb.sd[i]);
+      const band=(a,b2)=>{ ctx.beginPath();
+        a.forEach((v,i)=>{ const x=X(bb.xi[i]); i?ctx.lineTo(x,Y(v)):ctx.moveTo(x,Y(v)); });
+        for(let i=b2.length-1;i>=0;i--) ctx.lineTo(X(bb.xi[i]),Y(b2[i]));
+        ctx.closePath(); ctx.fillStyle=col; ctx.globalAlpha=al; ctx.fill(); ctx.globalAlpha=1; };
+      band(up,prevUp); band(prevLo,lo2);
+      const line=arr=>{ ctx.beginPath();
+        arr.forEach((v,i)=>{ const x=X(bb.xi[i]); i?ctx.lineTo(x,Y(v)):ctx.moveTo(x,Y(v)); });
+        ctx.strokeStyle=col; ctx.globalAlpha=.85; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1; };
+      line(up); line(lo2);
+      ctx.fillStyle=col; ctx.font='8.5px Roboto Mono';
+      ctx.fillText('+'+k+'σ', W-padR+3, Y(up[up.length-1])+3);
+      ctx.fillText('-'+k+'σ', W-padR+3, Y(lo2[lo2.length-1])+3);
+      prevUp=up; prevLo=lo2;
+    }
+    ctx.setLineDash([2,3]); ctx.beginPath();
+    bb.mid.forEach((v,i)=>{ const x=X(bb.xi[i]); i?ctx.lineTo(x,Y(v)):ctx.moveTo(x,Y(v)); });
+    ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1; ctx.stroke(); ctx.setLineDash([]);
+  }
+  // candles
+  const cw=Math.max(2,Math.min(9,plotW/xTot*0.62));
+  for(let i=0;i<n;i++){
+    const col=c[i]>=o[i]?'#ef5350':'#42a5f5';   // 日本式: 陽線=赤/陰線=青
+    const x=X(i);
+    ctx.strokeStyle=col; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x,Y(h[i])); ctx.lineTo(x,Y(l[i])); ctx.stroke();
+    const top=Y(Math.max(o[i],c[i])), bot=Y(Math.min(o[i],c[i]));
+    ctx.fillStyle=col; ctx.fillRect(x-cw/2, top, cw, Math.max(bot-top,1));
+  }
+  // SMA
+  const drawSma=(p,col)=>{ const s=smaArr(c,p); if(!s)return;
+    ctx.beginPath(); s.xi.forEach((xi,i)=>{ const x=X(xi);
+      i?ctx.lineTo(x,Y(s.v[i])):ctx.moveTo(x,Y(s.v[i])); });
+    ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.stroke(); };
+  drawSma(cfg.sma1,'#ffd54f'); drawSma(cfg.sma2,'#a78bfa');
+  // signals ▲▼
+  if(cfg.sig==='1' && state.signals.length){
+    const off=(yMax-yMin)*0.03;
+    for(const [i,p] of state.signals){
+      const x=X(i), s=4+10*Math.abs(p-0.5);
+      ctx.beginPath();
+      if(p>=0.5){ const y=Y(l[i]-off);
+        ctx.moveTo(x,y-s); ctx.lineTo(x-s,y+s*0.7); ctx.lineTo(x+s,y+s*0.7);
+        ctx.fillStyle='#22e07a'; }
+      else { const y=Y(h[i]+off);
+        ctx.moveTo(x,y+s); ctx.lineTo(x-s,y-s*0.7); ctx.lineTo(x+s,y-s*0.7);
+        ctx.fillStyle='#ff3b4e'; }
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  // pattern numbers
+  if(cfg.pat==='1' && state.patterns.length){
+    const off2=(yMax-yMin)*0.075; const stack={};
+    ctx.font='bold 9px Roboto Mono'; ctx.textAlign='center';
+    state.patterns.forEach((pt,idx)=>{
+      const x=X(pt.i), k=stack[pt.i]||0; stack[pt.i]=k+1;
+      ctx.fillStyle= pt.dir>0?'#69f0ae':pt.dir<0?'#ff5252':'#94a3b8';
+      const y= pt.dir>=0 ? Y(l[pt.i]-off2-k*off2*0.55)+8 : Y(h[pt.i]+off2+k*off2*0.55)-2;
+      ctx.fillText(String(idx+1), x, y);
+    });
+    ctx.textAlign='left';
+  }
+  // forecast fan
+  if(ens){
+    const bx=X(n-1), by=Y(c[n-1]);
+    ctx.setLineDash([2,3]); ctx.strokeStyle='#78909c';
+    ctx.beginPath(); ctx.moveTo(padL+(n)*plotW/xTot,padT);
+    ctx.lineTo(padL+(n)*plotW/xTot,H-padB); ctx.stroke(); ctx.setLineDash([]);
+    const fan=ens.fan;
+    const poly=(upArr,loArr,col,al)=>{ ctx.beginPath(); ctx.moveTo(bx,by);
+      upArr.forEach((v,j)=>ctx.lineTo(X(n+j),Y(v)));
+      for(let j=loArr.length-1;j>=0;j--) ctx.lineTo(X(n+j),Y(loArr[j]));
+      ctx.lineTo(bx,by); ctx.closePath();
+      ctx.fillStyle=col; ctx.globalAlpha=al; ctx.fill(); ctx.globalAlpha=1; };
+    poly(fan.p95,fan.p5,'#22d3ee',.10);
+    poly(fan.p84,fan.p16,'#22d3ee',.20);
+    ctx.beginPath(); ctx.moveTo(bx,by);
+    fan.med.forEach((v,j)=>ctx.lineTo(X(n+j),Y(v)));
+    ctx.strokeStyle='#22d3ee'; ctx.lineWidth=2;
+    ctx.stroke();
+    // price tag
+    const fy=Y(fan.med[steps-1]);
+    ctx.fillStyle='#155e75'; const tag=Math.round(fan.med[steps-1]).toLocaleString();
+    ctx.font='bold 10px Roboto Mono';
+    const tw=ctx.measureText(tag).width;
+    ctx.beginPath(); ctx.roundRect(W-padR+1, fy-8, tw+8, 16, 4); ctx.fill();
+    ctx.fillStyle='#a5f3fc'; ctx.fillText(tag, W-padR+5, fy+3.5);
+  }
+  // x labels
+  ctx.fillStyle='#8b95a7'; ctx.font='9px Roboto Mono';
+  const tf=TF[state.tf], isIntra=(state.tf==='1m'||state.tf==='5m');
+  const stepT=Math.max(1,Math.ceil(n/5));
+  for(let i=0;i<n;i+=stepT){
+    const dt=new Date((ts[i]+32400)*1000);
+    const lab= isIntra ?
+      String(dt.getUTCHours()).padStart(2,'0')+':'+String(dt.getUTCMinutes()).padStart(2,'0')
+      : (dt.getUTCMonth()+1)+'/'+dt.getUTCDate()
+        + (state.tf==='1mo'?'/'+String(dt.getUTCFullYear()).slice(2):'');
+    ctx.fillText(lab, X(i)-12, H-7);
+  }
+  if(ens){ ctx.fillStyle='#22d3ee'; ctx.fillText(tf.fcLabel, X(n+steps-1)-12, H-7); }
+}
+
+function drawRsiSpark(id, arr){
+  const cv=$(id); if(!cv||!arr||arr.length<2) return;
+  const W=cv.clientWidth||90, H=30, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const Y=v=>H-2-(v/100)*(H-4);
+  const hline=(v,col)=>{ ctx.setLineDash([2,2]); ctx.strokeStyle=col;
+    ctx.beginPath(); ctx.moveTo(0,Y(v)); ctx.lineTo(W,Y(v)); ctx.stroke(); ctx.setLineDash([]); };
+  hline(80,'rgba(239,68,68,.5)');           // 80%: 買われすぎ
+  hline(50,'rgba(255,255,255,.12)');        // 50%: 中立
+  hline(20,'rgba(59,130,246,.5)');          // 20%: 売られすぎ
+  ctx.beginPath();
+  arr.forEach((v,i)=>{ const x=i/(arr.length-1)*W; i?ctx.lineTo(x,Y(v)):ctx.moveTo(x,Y(v)); });
+  ctx.strokeStyle='#22d3ee'; ctx.lineWidth=1.4; ctx.stroke();
+}
+function drawMacdSpark(id, line, sig){
+  const cv=$(id); if(!cv||line.length<2) return;
+  const W=cv.clientWidth||90, H=30, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const all=line.concat(sig), mn=Math.min(...all), mx=Math.max(...all), rg=Math.max(mx-mn,1e-9);
+  const Y=v=>H-2-(v-mn)/rg*(H-4);
+  if(mn<0&&mx>0){ ctx.setLineDash([2,2]); ctx.strokeStyle='rgba(255,255,255,.14)';
+    ctx.beginPath(); ctx.moveTo(0,Y(0)); ctx.lineTo(W,Y(0)); ctx.stroke(); ctx.setLineDash([]); }
+  const draw=(a,col)=>{ ctx.beginPath();
+    a.forEach((v,i)=>{ const x=i/(a.length-1)*W; i?ctx.lineTo(x,Y(v)):ctx.moveTo(x,Y(v)); });
+    ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.stroke(); };
+  draw(sig,'#a78bfa');     // シグナル線 (紫)
+  draw(line,'#ffd54f');    // MACD線 (黄)
+  // 直近クロス地点に GX=緑 / DX=赤 のドット
+  let ci=-1;
+  for(let i=line.length-1;i>0;i--){
+    if((line[i]-sig[i])*(line[i-1]-sig[i-1])<=0){ ci=i; break; }
+  }
+  if(ci>0){ const x=ci/(line.length-1)*W, y=Y((line[ci]+sig[ci])/2);
+    ctx.beginPath(); ctx.arc(x,y,3.2,0,7);
+    ctx.fillStyle= line[line.length-1]>=sig[sig.length-1]?'#22c55e':'#ef4444';
+    ctx.fill(); ctx.strokeStyle='#0a0e16'; ctx.lineWidth=1; ctx.stroke(); }
+}
+
+function drawSpark(id, arr, col, base){
+  const cv=$(id); if(!cv||!arr||arr.length<2) return;
+  const W=cv.clientWidth||90, H=30, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const mn=Math.min(...arr), mx=Math.max(...arr), rg=Math.max(mx-mn,1e-9);
+  if(base!=null){ const y=H-2-(base-mn)/rg*(H-4);
+    ctx.setLineDash([2,2]); ctx.strokeStyle='rgba(255,255,255,.18)';
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.beginPath();
+  arr.forEach((v,i)=>{ const x=i/(arr.length-1)*W, y=H-2-(v-mn)/rg*(H-4);
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.stroke();
+}
+
+
+/* ---------- 詳細チャート (ローソク足+指標 時間軸同期) ---------- */
+const dtl={rsi:true, macd:true, bb:true, ci:-1};
+function openDetail(){
+  if(!state.data){ toast('まず銘柄を分析してください'); return; }
+  $('dtl-sym').textContent=state.symbol+' ('+TF[state.tf].label+')';
+  dtl.ci=-1;
+  $('dtlmodal').classList.add('open');
+  requestAnimationFrame(drawDetail);
+}
+function drawDetail(){
+  const cv=$('dtlchart'), d=state.data;
+  if(!d||!cv.clientWidth) return;
+  const cFull=d.cFull, n=d.c.length;
+  const W=cv.clientWidth, dpr=window.devicePixelRatio||1;
+  const H=Math.min(Math.round(W*1.35), Math.round(window.innerHeight*0.66));
+  cv.style.height=H+'px'; cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  const padL=40, padR=10, padB=18;
+  const plotW=W-padL-padR;
+  const X=i=>padL+(i+0.5)*plotW/n;
+  // パネル構成: 価格 + 有効な指標
+  const inds=[];
+  if(dtl.rsi) inds.push('rsi');
+  if(dtl.macd) inds.push('macd');
+  if(dtl.bb) inds.push('bb');
+  const priceH=(H-padB)*(inds.length?0.46:1.0);
+  const indH=inds.length?((H-padB)-priceH)/inds.length:0;
+  // 指標データ (全履歴で計算→表示分にスライスし、ローソクと同じiで揃う)
+  const rsiD=rsiArr(cFull).slice(-n);
+  const mdD=macdArr(cFull);
+  const mLine=mdD.line.slice(-n), mSig=mdD.sig.slice(-n), mHist=mdD.hist.slice(-n);
+  const bbF=bollinger(cFull, state.cfg.bbn);
+  let devD=new Array(n).fill(0);
+  if(bbF){ for(let i=0;i<n;i++){
+    const k=cFull.length-n+i-(state.cfg.bbn-1);
+    if(k>=0&&k<bbF.mid.length)
+      devD[i]=(cFull[cFull.length-n+i]-bbF.mid[k])/Math.max(bbF.sd[k],1e-9);
+  }}
+  /* --- 価格パネル --- */
+  let yMin=Math.min(...d.l), yMax=Math.max(...d.h);
+  const pad=(yMax-yMin)*0.06; yMin-=pad; yMax+=pad;
+  const Yp=v=>8+(priceH-16)*(1-(v-yMin)/(yMax-yMin));
+  ctx.font='9px Roboto Mono'; ctx.fillStyle='#5a6478';
+  ctx.strokeStyle='rgba(255,255,255,.05)';
+  for(let k=0;k<=3;k++){ const v=yMin+(yMax-yMin)*k/3, y=Yp(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.fillText(v>=1000?Math.round(v).toLocaleString():v.toFixed(1), 2, y+3); }
+  const cw=Math.max(2,Math.min(8,plotW/n*0.62));
+  for(let i=0;i<n;i++){
+    const col=d.c[i]>=d.o[i]?'#ef5350':'#42a5f5';
+    const x=X(i);
+    ctx.strokeStyle=col; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x,Yp(d.h[i])); ctx.lineTo(x,Yp(d.l[i])); ctx.stroke();
+    const t=Yp(Math.max(d.o[i],d.c[i])), b=Yp(Math.min(d.o[i],d.c[i]));
+    ctx.fillStyle=col; ctx.fillRect(x-cw/2,t,cw,Math.max(b-t,1));
+  }
+  ctx.fillStyle='#8b95a7'; ctx.font='bold 9px Noto Sans JP';
+  ctx.fillText('価格', padL+4, 14);
+  /* --- 指標パネル --- */
+  let top=priceH;
+  const sep=y=>{ ctx.strokeStyle='rgba(255,255,255,.10)';
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); };
+  for(const p of inds){
+    sep(top);
+    const h2=indH, innerT=top+6, innerH=h2-14;
+    if(p==='rsi'){
+      const Y2=v=>innerT+innerH*(1-v/100);
+      const hl=(v,col)=>{ ctx.setLineDash([2,2]); ctx.strokeStyle=col;
+        ctx.beginPath(); ctx.moveTo(padL,Y2(v)); ctx.lineTo(W-padR,Y2(v));
+        ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle='#5a6478'; ctx.font='8px Roboto Mono';
+        ctx.fillText(String(v), 2, Y2(v)+3); };
+      hl(80,'rgba(239,68,68,.5)'); hl(50,'rgba(255,255,255,.12)'); hl(20,'rgba(59,130,246,.5)');
+      ctx.beginPath();
+      rsiD.forEach((v,i)=>{ const x=X(i); i?ctx.lineTo(x,Y2(v)):ctx.moveTo(x,Y2(v)); });
+      ctx.strokeStyle='#22d3ee'; ctx.lineWidth=1.4; ctx.stroke();
+      ctx.fillStyle='#8b95a7'; ctx.font='bold 9px Noto Sans JP';
+      ctx.fillText('RSI('+14+')', padL+4, top+13);
+    }
+    if(p==='macd'){
+      const all=mLine.concat(mSig), mn=Math.min(...all), mx=Math.max(...all),
+            rg=Math.max(mx-mn,1e-9);
+      const Y2=v=>innerT+innerH*(1-(v-mn)/rg);
+      if(mn<0&&mx>0){ ctx.setLineDash([2,2]); ctx.strokeStyle='rgba(255,255,255,.14)';
+        ctx.beginPath(); ctx.moveTo(padL,Y2(0)); ctx.lineTo(W-padR,Y2(0));
+        ctx.stroke(); ctx.setLineDash([]); }
+      // ヒストグラム
+      for(let i=0;i<n;i++){ const x=X(i);
+        ctx.fillStyle=mHist[i]>=0?'rgba(34,197,94,.45)':'rgba(239,68,68,.45)';
+        const y0=Y2(0), y1=Y2(mHist[i]);
+        ctx.fillRect(x-cw/3, Math.min(y0,y1), cw*2/3, Math.max(Math.abs(y1-y0),1)); }
+      const line2=(a,col)=>{ ctx.beginPath();
+        a.forEach((v,i)=>{ const x=X(i); i?ctx.lineTo(x,Y2(v)):ctx.moveTo(x,Y2(v)); });
+        ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.stroke(); };
+      line2(mSig,'#a78bfa'); line2(mLine,'#ffd54f');
+      // クロス点
+      for(let i=1;i<n;i++){
+        if((mLine[i]-mSig[i])*(mLine[i-1]-mSig[i-1])<=0){
+          const x=X(i), y=Y2((mLine[i]+mSig[i])/2);
+          ctx.beginPath(); ctx.arc(x,y,2.6,0,7);
+          ctx.fillStyle=mLine[i]>=mSig[i]?'#22c55e':'#ef4444'; ctx.fill(); }
+      }
+      ctx.fillStyle='#8b95a7'; ctx.font='bold 9px Noto Sans JP';
+      ctx.fillText('MACD', padL+4, top+13);
+    }
+    if(p==='bb'){
+      const mn=Math.min(-3,...devD), mx=Math.max(3,...devD), rg=mx-mn;
+      const Y2=v=>innerT+innerH*(1-(v-mn)/rg);
+      const hl=(v,col)=>{ ctx.setLineDash([2,2]); ctx.strokeStyle=col;
+        ctx.beginPath(); ctx.moveTo(padL,Y2(v)); ctx.lineTo(W-padR,Y2(v));
+        ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle='#5a6478'; ctx.font='8px Roboto Mono';
+        ctx.fillText((v>0?'+':'')+v+'σ', 2, Y2(v)+3); };
+      hl(2,'rgba(245,158,11,.5)'); hl(0,'rgba(255,255,255,.12)'); hl(-2,'rgba(245,158,11,.5)');
+      ctx.beginPath();
+      devD.forEach((v,i)=>{ const x=X(i); i?ctx.lineTo(x,Y2(v)):ctx.moveTo(x,Y2(v)); });
+      ctx.strokeStyle='#a78bfa'; ctx.lineWidth=1.4; ctx.stroke();
+      ctx.fillStyle='#8b95a7'; ctx.font='bold 9px Noto Sans JP';
+      ctx.fillText('BB位置(σ)', padL+4, top+13);
+    }
+    top+=indH;
+  }
+  /* --- 横軸 --- */
+  ctx.fillStyle='#8b95a7'; ctx.font='9px Roboto Mono';
+  const isIntra=(state.tf==='1m'||state.tf==='5m');
+  const stepT=Math.max(1,Math.ceil(n/5));
+  for(let i=0;i<n;i+=stepT){
+    const dt=new Date((d.ts[i]+32400)*1000);
+    const lab= isIntra ?
+      String(dt.getUTCHours()).padStart(2,'0')+':'+String(dt.getUTCMinutes()).padStart(2,'0')
+      : (dt.getUTCMonth()+1)+'/'+dt.getUTCDate();
+    ctx.fillText(lab, X(i)-12, H-5);
+  }
+  /* --- 十字線 (全パネル貫通) --- */
+  if(dtl.ci>=0&&dtl.ci<n){
+    const x=X(dtl.ci);
+    ctx.strokeStyle='rgba(232,237,245,.55)'; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H-padB); ctx.stroke();
+    ctx.setLineDash([]);
+    const i=dtl.ci, dt=new Date((d.ts[i]+32400)*1000);
+    const dl= isIntra ?
+      (dt.getUTCMonth()+1)+'/'+dt.getUTCDate()+' '+
+      String(dt.getUTCHours()).padStart(2,'0')+':'+String(dt.getUTCMinutes()).padStart(2,'0')
+      : (dt.getUTCMonth()+1)+'/'+dt.getUTCDate();
+    $('dtl-info').textContent=
+      dl+'  終値'+fmt(d.c[i])+'  RSI '+rsiD[i].toFixed(0)
+      +'  MACD '+(mLine[i]>=mSig[i]?'GX':'DX')
+      +'  BB '+(devD[i]>=0?'+':'')+devD[i].toFixed(1)+'σ';
+  }
+}
+function dtlPointer(e){
+  const cv=$('dtlchart'), d=state.data; if(!d) return;
+  const rect=cv.getBoundingClientRect();
+  const x=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;
+  const n=d.c.length, padL=40, plotW=rect.width-40-10;
+  let i=Math.floor((x-padL)/plotW*n);
+  i=Math.max(0,Math.min(n-1,i));
+  if(i!==dtl.ci){ dtl.ci=i; drawDetail(); }
+  if(e.cancelable) e.preventDefault();
+}
+
+
+/* ---------- 指標オーバーレイ拡大ビュー ---------- */
+const IND_DEFS = {
+  candle:{label:'ローソク足', color:'#e8edf5', always:true},
+  bb:    {label:'ボリンジャー', color:'#22c55e'},
+  sma:   {label:'SMA', color:'#ffd54f'},
+  rsi:   {label:'RSI', color:'#22d3ee', pane:true},
+  macd:  {label:'MACD', color:'#ffd54f', pane:true},
+};
+const indState = { sel:{candle:true, rsi:true}, openedBy:null };
+
+function openIndOverlay(primary){
+  if(!state.data){ toast('まず銘柄を分析してください'); return; }
+  // タップした指標をデフォルトON + ローソク足は常時
+  indState.sel = {candle:true};
+  if(primary==='rsi') indState.sel.rsi=true;
+  else if(primary==='macd') indState.sel.macd=true;
+  else if(primary==='bb') indState.sel.bb=true;
+  indState.openedBy=primary;
+  buildIndChips();
+  $('indmodal').classList.add('open');
+  requestAnimationFrame(drawIndOverlay);
+}
+function buildIndChips(){
+  const order=['candle','bb','sma','rsi','macd'];
+  $('ind-chips').innerHTML = order.map(k=>{
+    const d=IND_DEFS[k], on=indState.sel[k]?'on':'';
+    return `<button class="indchip ${on}" data-k="${k}">
+      <i style="background:${d.color}"></i>${d.label}</button>`;
+  }).join('');
+  $('ind-chips').querySelectorAll('.indchip').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k;
+    indState.sel[k]=!indState.sel[k];
+    b.classList.toggle('on', indState.sel[k]);
+    drawIndOverlay();
+  });
+}
+function drawIndOverlay(){
+  const cv=$('ind-canvas'), d=state.data;
+  if(!cv||!d) return;
+  const sel=indState.sel;
+  const c=d.c, o=d.o, h=d.h, l=d.l, ts=d.ts, n=c.length;
+  const cFull=d.cFull;
+  const ens=state.ens;
+  const steps= ens?ens.steps:0;
+  // 予測価格パス(中央値)をcFullへ連結し、指標を予測区間まで延長計算
+  const medPath= ens?ens.fan.med:[];
+  const cExt= ens? cFull.concat(medPath) : cFull;
+  // 表示区間: 実測n本 + 予測steps本
+  const tailExt=a=>a.slice(-(n+steps));
+  const rsiExt=tailExt(rsiArr(cExt));
+  const mdE=macdArr(cExt);
+  const macdLe=tailExt(mdE.line), macdSe=tailExt(mdE.sig), macdHe=tailExt(mdE.hist);
+  const bbFull=bollinger(cFull, state.cfg.bbn);
+  // 実測部の系列 (末尾n本)
+  const tail=a=>a.slice(-n);
+  const rsiFull=rsiExt.slice(0,n);
+  const macdL=macdLe.slice(0,n), macdS=macdSe.slice(0,n), macdH=macdHe.slice(0,n);
+  // 予測部 (steps本)
+  const rsiFc=rsiExt.slice(n), macdLfc=macdLe.slice(n), macdSfc=macdSe.slice(n), macdHfc=macdHe.slice(n);
+  // ペイン構成: 価格(常時) + 選択されたpane系
+  const panes=[{type:'price'}];
+  if(sel.rsi) panes.push({type:'rsi'});
+  if(sel.macd) panes.push({type:'macd'});
+
+  const W=cv.clientWidth||cv.parentElement.clientWidth-32;
+  const dpr=window.devicePixelRatio||1;
+  const priceH=260, subH=110, gap=10, padT=8, padB=24;
+  const H=padT+priceH+(panes.length-1)*(subH+gap)+padB;
+  cv.style.height=H+'px'; cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const padL=46, padR=14;
+  const plotW=W-padL-padR;
+  const xTot=n+steps+(steps?1:0);   // 予測ぶんを横軸に確保
+  const X=i=>padL+(i+0.5)*plotW/xTot;
+  const fcOn= steps>0 && ens;
+
+  // 各ペインのY起点
+  let yTop=padT;
+  const paneRect={};
+  panes.forEach((p,idx)=>{ const hh= idx===0?priceH:subH;
+    paneRect[p.type]={top:yTop, h:hh}; yTop+=hh+gap; });
+
+  // 縦グリッド (日付) 全ペイン共通
+  ctx.font='9px Roboto Mono';
+  const tf=TF[state.tf], isIntra=(state.tf==='1m'||state.tf==='5m');
+  const stepT=Math.max(1,Math.ceil(n/5));
+  ctx.strokeStyle='rgba(255,255,255,.04)';
+  for(let i=0;i<n;i+=stepT){
+    ctx.beginPath(); ctx.moveTo(X(i),padT); ctx.lineTo(X(i),H-padB); ctx.stroke();
+  }
+  // 予測境界の縦点線 (全ペイン貫通)
+  if(fcOn){
+    const bxLine=padL+(n)*plotW/xTot;
+    ctx.setLineDash([3,3]); ctx.strokeStyle='rgba(34,211,238,.4)';
+    ctx.beginPath(); ctx.moveTo(bxLine,padT); ctx.lineTo(bxLine,H-padB);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // ===== 価格ペイン =====
+  const pr=paneRect.price;
+  let yMin=Math.min(...l), yMax=Math.max(...h);
+  if(sel.bb && bbFull){ const kn=tail(bbFull.mid).map((m,i)=>m);
+    const up=tail(bbFull.mid).map((m,i)=>m+2*tail(bbFull.sd)[i]);
+    const lo=tail(bbFull.mid).map((m,i)=>m-2*tail(bbFull.sd)[i]);
+    yMin=Math.min(yMin,...lo); yMax=Math.max(yMax,...up); }
+  if(fcOn){ yMin=Math.min(yMin,...ens.fan.p5); yMax=Math.max(yMax,...ens.fan.p95); }
+  const pad=(yMax-yMin)*0.05; yMin-=pad; yMax+=pad;
+  const Yp=v=>pr.top+pr.h*(1-(v-yMin)/(yMax-yMin));
+  // グリッド横+ラベル
+  ctx.fillStyle='#5a6478'; ctx.strokeStyle='rgba(255,255,255,.05)';
+  for(let k=0;k<=4;k++){ const v=yMin+(yMax-yMin)*k/4, y=Yp(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.fillText(Math.round(v).toLocaleString(), 2, y+3); }
+  // BB
+  if(sel.bb && bbFull){
+    const mid=tail(bbFull.mid), sd=tail(bbFull.sd);
+    [[2,'#f59e0b'],[1,'#22c55e']].forEach(([k,col])=>{
+      ctx.strokeStyle=col; ctx.globalAlpha=.7; ctx.lineWidth=1;
+      [1,-1].forEach(sgn=>{ ctx.beginPath();
+        mid.forEach((m,i)=>{ const x=X(i), y=Yp(m+sgn*k*sd[i]);
+          i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); });
+      ctx.globalAlpha=1;
+    });
+    ctx.setLineDash([2,3]); ctx.strokeStyle='#cbd5e1'; ctx.beginPath();
+    mid.forEach((m,i)=>{ const x=X(i); i?ctx.lineTo(x,Yp(m)):ctx.moveTo(x,Yp(m)); });
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  // SMA
+  if(sel.sma){
+    [[state.cfg.sma1,'#ffd54f'],[state.cfg.sma2,'#a78bfa']].forEach(([p2,col])=>{
+      const s=smaArr(cFull,p2); if(!s)return; const sv=s.v.slice(-n), sShift=n-sv.length;
+      ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.beginPath();
+      sv.forEach((v,i)=>{ const x=X(i+sShift), y=Yp(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+      ctx.stroke();
+    });
+  }
+  // ローソク足
+  if(sel.candle){
+    const cw=Math.max(2,Math.min(10,plotW/xTot*0.62));
+    for(let i=0;i<n;i++){ const col=c[i]>=o[i]?'#ef5350':'#42a5f5';
+      const x=X(i); ctx.strokeStyle=col; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(x,Yp(h[i])); ctx.lineTo(x,Yp(l[i])); ctx.stroke();
+      const top=Yp(Math.max(o[i],c[i])), bot=Yp(Math.min(o[i],c[i]));
+      ctx.fillStyle=col; ctx.fillRect(x-cw/2, top, cw, Math.max(bot-top,1)); }
+  }
+  // 価格予測ファン (帯 + 中央値実線)
+  if(fcOn){
+    const fan=ens.fan, bx=X(n-1), by=Yp(c[n-1]);
+    const poly=(upArr,loArr,al)=>{ ctx.beginPath(); ctx.moveTo(bx,by);
+      upArr.forEach((v,j)=>ctx.lineTo(X(n+j),Yp(v)));
+      for(let j=loArr.length-1;j>=0;j--) ctx.lineTo(X(n+j),Yp(loArr[j]));
+      ctx.lineTo(bx,by); ctx.closePath();
+      ctx.fillStyle='#22d3ee'; ctx.globalAlpha=al; ctx.fill(); ctx.globalAlpha=1; };
+    poly(fan.p95,fan.p5,.10); poly(fan.p84,fan.p16,.20);
+    ctx.beginPath(); ctx.moveTo(bx,by);
+    fan.med.forEach((v,j)=>ctx.lineTo(X(n+j),Yp(v)));
+    ctx.strokeStyle='#22d3ee'; ctx.lineWidth=2; ctx.stroke();
+  }
+  ctx.fillStyle='#8b95a7'; ctx.font='10px Roboto Mono';
+  ctx.fillText('価格', padL+4, pr.top+13);
+
+  // ===== RSIペイン =====
+  if(sel.rsi && paneRect.rsi){
+    const rp=paneRect.rsi;
+    const Yr=v=>rp.top+rp.h*(1-v/100);
+    ctx.strokeStyle='rgba(255,255,255,.06)';
+    ctx.strokeRect(padL,rp.top,plotW,rp.h);
+    [[80,'rgba(239,68,68,.5)'],[50,'rgba(255,255,255,.14)'],[20,'rgba(59,130,246,.5)']]
+      .forEach(([v,col])=>{ ctx.setLineDash([3,3]); ctx.strokeStyle=col;
+        ctx.beginPath(); ctx.moveTo(padL,Yr(v)); ctx.lineTo(W-padR,Yr(v)); ctx.stroke();
+        ctx.setLineDash([]); ctx.fillStyle=col; ctx.fillText(String(v), 2, Yr(v)+3); });
+    ctx.strokeStyle='#22d3ee'; ctx.lineWidth=1.4; ctx.beginPath();
+    rsiFull.forEach((v,i)=>{ const x=X(i),y=Yr(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+    ctx.stroke();
+    // RSI予測延長 (実測終端から続けて実線・同色)
+    if(fcOn && rsiFc.length){
+      ctx.beginPath();
+      ctx.moveTo(X(n-1), Yr(rsiFull[n-1]));
+      rsiFc.forEach((v,j)=>ctx.lineTo(X(n+j), Yr(v)));
+      ctx.strokeStyle='#22d3ee'; ctx.globalAlpha=.55; ctx.lineWidth=1.6;
+      ctx.stroke(); ctx.globalAlpha=1;
+    }
+    ctx.fillStyle='#22d3ee'; ctx.font='10px Roboto Mono';
+    ctx.fillText('RSI(14)', padL+4, rp.top+13);
+  }
+  // ===== MACDペイン =====
+  if(sel.macd && paneRect.macd){
+    const mp=paneRect.macd;
+    const allM=macdL.concat(macdS,macdH, fcOn?macdLfc.concat(macdSfc,macdHfc):[]);
+    const mn=Math.min(...allM), mx=Math.max(...allM), rg=Math.max(mx-mn,1e-9);
+    const Ym=v=>mp.top+mp.h*(1-(v-mn)/rg);
+    ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.strokeRect(padL,mp.top,plotW,mp.h);
+    if(mn<0&&mx>0){ ctx.setLineDash([3,3]); ctx.strokeStyle='rgba(255,255,255,.14)';
+      ctx.beginPath(); ctx.moveTo(padL,Ym(0)); ctx.lineTo(W-padR,Ym(0)); ctx.stroke(); ctx.setLineDash([]); }
+    // ヒストグラム (実測)
+    const bw=Math.max(1,plotW/xTot*0.5);
+    macdH.forEach((v,i)=>{ ctx.fillStyle= v>=0?'rgba(34,197,94,.5)':'rgba(239,68,68,.5)';
+      const y0=Ym(0), y1=Ym(v); ctx.fillRect(X(i)-bw/2, Math.min(y0,y1), bw, Math.abs(y1-y0)); });
+    // ヒストグラム (予測・淡色)
+    if(fcOn) macdHfc.forEach((v,j)=>{ ctx.fillStyle= v>=0?'rgba(34,197,94,.28)':'rgba(239,68,68,.28)';
+      const y0=Ym(0), y1=Ym(v); ctx.fillRect(X(n+j)-bw/2, Math.min(y0,y1), bw, Math.abs(y1-y0)); });
+    // MACD線/シグナル線 (実測)
+    const drawL=(a,col)=>{ ctx.strokeStyle=col; ctx.lineWidth=1.3; ctx.beginPath();
+      a.forEach((v,i)=>{ const x=X(i),y=Ym(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); };
+    drawL(macdS,'#a78bfa'); drawL(macdL,'#ffd54f');
+    // 予測延長 (実測終端から続けて・同色・淡)
+    if(fcOn){
+      const ext=(base,fc,col)=>{ ctx.beginPath();
+        ctx.moveTo(X(n-1), Ym(base[n-1]));
+        fc.forEach((v,j)=>ctx.lineTo(X(n+j), Ym(v)));
+        ctx.strokeStyle=col; ctx.globalAlpha=.5; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha=1; };
+      ext(macdS, macdSfc, '#a78bfa'); ext(macdL, macdLfc, '#ffd54f');
+    }
+    // クロス点マーカー (実測+予測連結で判定)
+    const fullL= fcOn?macdL.concat(macdLfc):macdL, fullS= fcOn?macdS.concat(macdSfc):macdS;
+    for(let i=1;i<fullL.length;i++){
+      if((fullL[i]-fullS[i])*(fullL[i-1]-fullS[i-1])<=0){
+        const x=X(i), y=Ym((fullL[i]+fullS[i])/2);
+        ctx.beginPath(); ctx.arc(x,y,3,0,7);
+        ctx.fillStyle= fullL[i]>=fullS[i]?'#22c55e':'#ef4444';
+        ctx.globalAlpha= i>=n?.6:1; ctx.fill(); ctx.globalAlpha=1;
+        ctx.strokeStyle='#0a0e16'; ctx.lineWidth=1; ctx.stroke();
+      }
+    }
+    ctx.fillStyle='#ffd54f'; ctx.font='10px Roboto Mono';
+    ctx.fillText('MACD', padL+4, mp.top+13);
+  }
+
+  // X軸ラベル (最下ペイン下)
+  ctx.fillStyle='#8b95a7'; ctx.font='9px Roboto Mono';
+  for(let i=0;i<n;i+=stepT){
+    const dt=new Date((ts[i]+32400)*1000);
+    const lab= isIntra ?
+      String(dt.getUTCHours()).padStart(2,'0')+':'+String(dt.getUTCMinutes()).padStart(2,'0')
+      : (dt.getUTCMonth()+1)+'/'+dt.getUTCDate();
+    ctx.fillText(lab, X(i)-12, H-7);
+  }
+  if(fcOn){ ctx.fillStyle='#22d3ee';
+    ctx.fillText(tf.fcLabel, X(n+steps-1)-12, H-7); }
+  // 凡例ノート
+  $('ind-note').textContent='チップで指標をON/OFF。シアンの縦点線より右は予測区間です。'
+    +'価格はファン(中央値=実線+68/90%帯)、RSI・MACDは予測価格パスから延長した推定値を'
+    +'同色の淡線で表示。全ペインが時間軸を共有するので、'
+    +'予測上のGX/DX・RSI反転のタイミングを縦位置で照合できます。';
+}
+
+/* ---------- メイン解析フロー ---------- */
+async function analyze(code, silent){
+  const symbol=normSym(code||state.symbol);
+  if(!symbol){ toast('銘柄コードを入力してください'); return; }
+  if(state.busy) return; state.busy=true;
+  if(!silent){ $('chartmsg').innerHTML='<span class="spin"></span>取得・解析中… (6モデル)';
+    $('chartmsg').style.display='block'; $('chart').style.display='none'; }
+  try{
+    const tf=TF[state.tf];
+    const bars=state.cfg.bars[state.tf]||tf.bars;
+    const [chart, quote, newsRaw] = await Promise.all([
+      yChart(symbol, tf.interval, tf.range), yQuote(symbol), yNews(symbol)]);
+    const cFull=chart.c;
+    const nDisp=Math.min(bars, cFull.length);
+    const sl=a=>a.slice(-nDisp);
+    state.symbol=symbol; LS.set('ss_sym',symbol);
+    state.data={o:sl(chart.o),h:sl(chart.h),l:sl(chart.l),c:sl(chart.c),
+                ts:sl(chart.ts), cFull, name:quote.name};
+    state.news=newsRaw;
+    const m5=m5News(newsRaw.map(x=>x.title));
+    const m6= state.tf==='1d' ? await m6Macro(symbol) : null;
+    state.ens=ensemble(cFull, 3, m5, m6);
+    state.ens.m5=m5; state.ens.m6=m6;
+    state.patterns = state.cfg.pat==='1' ?
+      detectPatterns(state.data.o,state.data.h,state.data.l,state.data.c):[];
+    state.signals = state.cfg.sig==='1' ?
+      computeSignals(cFull, nDisp, state.cfg.bbn):[];
+    renderAll(quote);
+    if(!silent) toast(symbol+' の分析が完了しました');
+  }catch(e){
+    console.error(e);
+    $('chartmsg').textContent='取得エラー: '+(e.message||e)+' / 銘柄コード・通信・プロキシ設定をご確認ください';
+    $('chartmsg').style.display='block'; $('chart').style.display='none';
+  }
+  state.busy=false;
+}
+
+function renderAll(quote){
+  const d=state.data, ens=state.ens, sym=state.symbol;
+  // quote card
+  $('qcode').textContent=sym.replace('.T','');
+  $('qname').textContent=(d.name||sym).split(/ COMPANY| CO\.| LIMITED| INC| CORP/i)[0];
+  $('qfull').textContent=d.name||'';
+  const p=quote.price, pv=quote.prev;
+  $('qprice').innerHTML = p!=null? fmt(p,p<100?2:1)+'<small>円</small>' : '--';
+  if(p!=null&&pv){
+    const df=p-pv, pc=df/pv*100, cls=df>0?'up':df<0?'dn':'neu';
+    $('qchg').className='qchg mono '+cls;
+    $('qchg').textContent=`${df>=0?'+':''}${fmt(df)}円 (${df>=0?'+':''}${pc.toFixed(2)}%)`;
+  }
+  $('qts').textContent= quote.time? new Date(quote.time*1000)
+    .toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+' 時点':'';
+  // fav star
+  _updateFavIcon(state.favs.includes(sym));
+  $('favbtn').classList.toggle('on', state.favs.includes(sym));
+  // AI card
+  $('aihorizon').textContent='('+TF[state.tf].horizon+')';
+  const pe=ens.pEns*100, circ=2*Math.PI*33;
+  const arc=$('g-arc');
+  arc.setAttribute('stroke-dasharray', `${circ*ens.pEns} ${circ}`);
+  arc.setAttribute('stroke', ens.pEns>=0.5?'#22c55e':'#ef4444');
+  $('g-val').textContent=pe.toFixed(1)+'%';
+  $('verdict').textContent=ens.verdict;
+  $('verdict').style.color= ens.pEns>=0.53?'var(--bull2)':ens.pEns<=0.45?'var(--bear)':'var(--sub)';
+  $('confv').textContent=ens.confPct.toFixed(0)+'%';
+  // stats
+  const fan=ens.fan, last=fan.med.length-1;
+  $('s-med').textContent=fmt(fan.med[last]);
+  $('s-r68').textContent=fmt(fan.p16[last])+' 〜 '+fmt(fan.p84[last]);
+  $('s-r90').textContent=fmt(fan.p5[last])+' 〜 '+fmt(fan.p95[last]);
+  $('s-vol').textContent=(ens.sigma*100).toFixed(2)+'% / 足';
+  // chart
+  $('chartmsg').style.display='none'; $('chart').style.display='block';
+  drawChart();
+  // minis
+  const c=d.cFull;
+  const rsiA=rsiArr(c).slice(-40), rv=rsiA[rsiA.length-1];
+  $('m-rsi').textContent=rv.toFixed(0);
+  drawRsiSpark('c-rsi', rsiA);
+  const rb=$('b-rsi');
+  rb.textContent= rv<30?'売られすぎ':rv>70?'買われすぎ':'中立';
+  rb.className='badge '+(rv<30?'b-bull':rv>70?'b-bear':'b-neu');
+  const md=macdArr(c), hist40=md.hist.slice(-40);
+  const m4=ens.m4;
+  $('m-macd').textContent= m4.macdUp?'GX 上向き':'DX 下向き';
+  $('m-macd').style.color= m4.macdUp?'var(--bull2)':'var(--bear)';
+  drawMacdSpark('c-macd', md.line.slice(-40), md.sig.slice(-40));
+  const mb=$('b-macd');
+  mb.textContent= m4.macdUp&&m4.macdGrow?'強気':!m4.macdUp&&!m4.macdGrow?'弱気':'転換注意';
+  mb.className='badge '+(m4.macdUp&&m4.macdGrow?'b-bull':!m4.macdUp&&!m4.macdGrow?'b-bear':'b-neu');
+  const dev=m4.bbDev;
+  $('m-bb').textContent= dev==null?'--':(dev>=0?'+':'')+dev.toFixed(1)+'σ';
+  const bbsp=bollinger(c.slice(-60), Math.min(state.cfg.bbn, 20));
+  drawSpark('c-bb', bbsp? c.slice(-60).slice(-bbsp.mid.length).map((v,i)=>(v-bbsp.mid[i])/Math.max(bbsp.sd[i],1e-9)):[0,0],'#a78bfa',0);
+  const bbb=$('b-bb');
+  bbb.textContent= dev==null?'--':dev<=-2?'安値圏':dev>=2?'高値圏':dev<0?'やや安値':'やや高値';
+  bbb.className='badge '+(dev<=-2?'b-blue':dev>=2?'b-bear':'b-neu');
+  // votes
+  let nb=0,nn=0,nr=0;
+  for(const v of ens.votes){ if(v>=0.53)nb++; else if(v<=0.47)nr++; else nn++; }
+  const tot=ens.votes.length, pb=nb/tot, pr=nr/tot;
+  const cir2=2*Math.PI*35;
+  $('v-arc').setAttribute('stroke-dasharray', `${cir2*pb} ${cir2}`);
+  $('v-arc-bear').setAttribute('stroke-dasharray',`${cir2*pr} ${cir2}`);
+  $('v-arc-bear').setAttribute('transform',`rotate(${-90+pb*360} 42 42)`);
+  const lead= pb>=pr&&pb>=(1-pb-pr)?['強気','var(--bull2)']:
+              pr>pb&&pr>=(1-pb-pr)?['弱気','var(--bear)']:['中立','var(--sub)'];
+  $('v-word').textContent=lead[0]; $('v-word').style.color=lead[1];
+  $('v-pct').textContent=Math.round(Math.max(pb,pr,1-pb-pr)*100)+'%';
+  $('v-legend').innerHTML=
+    `<div><i style="background:var(--bull)"></i>強気 ${Math.round(pb*100)}%</div>`+
+    `<div><i style="background:#5a6478"></i>中立 ${Math.round((1-pb-pr)*100)}%</div>`+
+    `<div><i style="background:var(--bear)"></i>弱気 ${Math.round(pr*100)}%</div>`;
+  // signals list (パターン直近5件)
+  const recent=[...state.patterns].sort((a,b)=>b.i-a.i).slice(0,5);
+  $('siglist').innerHTML = recent.length? recent.map(pt=>{
+    const dt=new Date((d.ts[pt.i]+32400)*1000);
+    const dl=(dt.getUTCMonth()+1)+'/'+dt.getUTCDate();
+    const cls=pt.dir>0?'b-bull':pt.dir<0?'b-bear':'b-neu';
+    const ic=pt.dir>0?'↑':pt.dir<0?'↓':'→';
+    const word=pt.dir>0?'強気':pt.dir<0?'弱気':'中立';
+    const wc=pt.dir>0?'up':pt.dir<0?'dn':'neu';
+    return `<div class="sigrow"><span class="sigico ${cls}">${ic}</span>
+      <span class="nm2">${pt.name}</span><b class="${wc}" style="font-size:11px">${word}</b>
+      <span class="d mono">${dl}</span></div>`;
+  }).join('') : '<div class="empty" style="padding:14px 0">検出なし</div>';
+  // news
+  $('newslist').innerHTML = state.news.length? state.news.slice(0,5).map(nw=>{
+    const dl=nw.t? (nw.t.getMonth()+1)+'/'+nw.t.getDate():'';
+    return `<div class="newsrow"><span class="d mono">${dl}</span><span>${nw.title}</span></div>`;
+  }).join(''):'<div class="empty" style="padding:14px 0">ニュースなし</div>';
+  // reports for modals
+  state.lastModelReport = ens.detail.map(m=>
+    `${m.label}  P↑=${(m.p*100).toFixed(0)}%\n   ${m.info}`).join('\n') +
+    (ens.m6?`\n\n■ マクロ相関\n 日経平均 β=${ens.m6.betaN.toFixed(2)} 相関=${ens.m6.corrN.toFixed(2)}`+
+      `\n ドル円   β=${ens.m6.betaF.toFixed(2)} 相関=${ens.m6.corrF.toFixed(2)} → ${ens.m6.fxType}`+
+      `\n 夜間FX ${(ens.m6.fxMove*100).toFixed(2)}% → ドリフト ${(ens.m6.drift*100).toFixed(2)}%`:'')+
+    `\n\n■ テクニカル根拠\n ${ens.m4.reasons.join('\n ')}`;
+  state.lastReport =
+    `総合上昇確率 ${(ens.pEns*100).toFixed(1)}%  [${ens.verdict}]\n`+
+    `信頼度 ${ens.conf} (一致度${ens.confPct.toFixed(0)}%)\n\n`+
+    `予測中央値  ${fmt(fan.med[last])}\n`+
+    `期待レンジ68%  ${fmt(fan.p16[last])} 〜 ${fmt(fan.p84[last])}\n`+
+    `期待レンジ90%  ${fmt(fan.p5[last])} 〜 ${fmt(fan.p95[last])}\n`+
+    `実効ボラ σ=${(ens.sigma*100).toFixed(2)}%/足 (較正×${VOL_CAL})\n\n`+
+    `※方向的中率は実測で偶然水準(約50%)。68/90%帯は較正済(実測71/91%)。\n`+
+    `リスク計測器としてレンジでお読みください。`;
+  refreshFavList(); 
+}
+
+/* ---------- UI 配線 ---------- */
+function switchView(v){
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  $('v-'+v).classList.add('active');
+  document.querySelectorAll('.nbtn').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  if(v==='search') refreshFavList();
+  if(v==='favorites') refreshFavList2();
+  if(v==='alerts') refreshAlertList();
+  window.scrollTo(0,0);
+}
+function buildTabs(){
+  $('tftabs').innerHTML = Object.entries(TF).map(([k,t])=>
+    `<button class="tab ${k===state.tf?'on':''}" data-tf="${k}">${t.label}</button>`).join('');
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+    state.tf=b.dataset.tf; LS.set('ss_tf',state.tf); buildTabs();
+    if(state.symbol) analyze(state.symbol);
+  });
+}
+
+function refreshFavList2(){
+  const el=$('favcount2'); if(el) el.textContent=state.favs.length+'件';
+  const list=$('favlist2'); if(!list) return;
+  list.innerHTML = state.favs.length? state.favs.map(s=>
+    `<div class="lrow" data-s="${s}"><div class="grow"><div class="nm3">${s.replace('.T','')}</div>
+     <div class="cd">${s}</div></div><button class="del" data-del="${s}">削除</button></div>`).join('')
+    : '<div class="empty">お気に入りはまだありません<br>銘柄分析画面で[+]をタップで追加</div>';
+  list.querySelectorAll('.lrow').forEach(r=>r.onclick=e=>{
+    if(e.target.dataset.del) return;
+    switchView('home'); analyze(r.dataset.s); });
+  list.querySelectorAll('.del').forEach(b=>b.onclick=()=>{
+    state.favs=state.favs.filter(x=>x!==b.dataset.del);
+    LS.set('ss_favs',state.favs); refreshFavList2();
+    if(state.symbol) _updateFavIcon(state.favs.includes(state.symbol)); });
+}
+
+function refreshFavList(){
+  $('favcount').textContent=state.favs.length+'件';
+  $('favlist').innerHTML = state.favs.length? state.favs.map(s=>
+    `<div class="lrow" data-s="${s}"><div class="grow"><div class="nm3">${s.replace('.T','')}</div>
+     <div class="cd">${s}</div></div><button class="del" data-del="${s}">削除</button></div>`).join('')
+    : '<div class="empty">お気に入りはまだありません<br>銘柄表示中に[+]をタップで追加</div>';
+  document.querySelectorAll('#favlist .lrow').forEach(r=>r.onclick=e=>{
+    if(e.target.dataset.del) return;
+    switchView('home'); analyze(r.dataset.s); });
+  document.querySelectorAll('#favlist .del').forEach(b=>b.onclick=()=>{
+    state.favs=state.favs.filter(x=>x!==b.dataset.del);
+    LS.set('ss_favs',state.favs); refreshFavList();
+    if(state.symbol) _updateFavIcon(state.favs.includes(state.symbol)); });
+}
+/* アラート */
+function refreshAlertList(){
+  $('allist').innerHTML = state.alerts.length? state.alerts.map((a,i)=>
+    `<div class="lrow" style="cursor:default"><div class="grow">
+      <div class="nm3">${a.sym.replace('.T','')} ${a.cond==='above'?'≧':'≦'} <span class="mono">${fmt(a.price,0)}円</span></div>
+      <div class="cd">${a.fired?'[発火済] '+a.fired:'監視中'}</div></div>
+      <button class="del" data-i="${i}">削除</button></div>`).join('')
+    : '<div class="empty">アラートはまだありません</div>';
+  document.querySelectorAll('#allist .del').forEach(b=>b.onclick=()=>{
+    state.alerts.splice(+b.dataset.i,1); LS.set('ss_alerts',state.alerts); refreshAlertList(); });
+}
+async function checkAlerts(){
+  const active=state.alerts.filter(a=>!a.fired);
+  if(!active.length) return;
+  const syms=[...new Set(active.map(a=>a.sym))];
+  for(const s of syms){
+    try{
+      const q=await yQuote(s); if(q.price==null) continue;
+      for(const a of active.filter(x=>x.sym===s)){
+        const hit= a.cond==='above'? q.price>=a.price : q.price<=a.price;
+        if(hit){
+          a.fired=new Date().toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+          const msg=`[AL] ${s.replace('.T','')} が ${fmt(q.price)}円 (${a.cond==='above'?'≧':'≦'}${fmt(a.price,0)}円 到達)`;
+          toast(msg, 6000);
+          if(Notification?.permission==='granted')
+            new Notification('StockSight アラート',{body:msg, icon:'icon-192.png'});
+        }
+      }
+    }catch(e){}
+  }
+  LS.set('ss_alerts',state.alerts);
+}
+/* スクリーニング */
+async function runScreening(){
+  if(!state.favs.length){ $('screenout').innerHTML='<div class="empty">お気に入りに銘柄を追加してください</div>'; return; }
+  $('screenout').innerHTML='<div class="empty"><span class="spin"></span>分析中…</div>';
+  const rows=[];
+  for(const s of state.favs){
+    try{
+      const [ch,q]=await Promise.all([yChart(s,'1d','1y'), yQuote(s)]);
+      const c=ch.c, r=logRet(c);
+      const m1=m1Bootstrap(r,3,800), m4=m4Technical(c,20);
+      const pUp= m1? (m1.pUp*0.5+m4.pUp*0.5) : m4.pUp;
+      const rv=rsiArr(c)[c.length-1];
+      const chg= q.prev? (q.price-q.prev)/q.prev*100 : null;
+      rows.push({s, price:q.price, chg, rsi:rv, pUp});
+    }catch(e){ rows.push({s, err:true}); }
+  }
+  rows.sort((a,b)=>(b.pUp||0)-(a.pUp||0));
+  $('screenout').innerHTML = rows.map(r=> r.err?
+    `<div class="lrow" style="cursor:default"><div class="grow"><div class="nm3">${r.s}</div>
+     <div class="cd">取得失敗</div></div></div>` :
+    `<div class="lrow" data-s="${r.s}"><div class="grow">
+      <div class="nm3">${r.s.replace('.T','')}</div>
+      <div class="cd">RSI ${r.rsi.toFixed(0)} / P↑ <b class="${r.pUp>=0.53?'up':r.pUp<=0.47?'dn':'neu'}">${(r.pUp*100).toFixed(0)}%</b></div></div>
+      <div class="pr"><div class="p1 mono">${fmt(r.price)}</div>
+      <div class="p2 mono ${r.chg>0?'up':r.chg<0?'dn':'neu'}">${r.chg!=null?(r.chg>=0?'+':'')+r.chg.toFixed(2)+'%':''}</div></div></div>`
+  ).join('');
+  document.querySelectorAll('#screenout .lrow[data-s]').forEach(rw=>rw.onclick=()=>{
+    switchView('home'); analyze(rw.dataset.s); });
+}
+
+
+/* ---------- 上昇候補スキャン (日経225) ---------- */
+const NIKKEI225 = [
+'1332','1605','1721','1801','1802','1803','1808','1812','1925','1928','1963',
+'2002','2269','2282','2413','2432','2501','2502','2503','2531','2768','2801','2802','2871','2914',
+'3086','3092','3099','3289','3382','3401','3402','3405','3407','3436','3659','3861','3863',
+'4004','4005','4021','4042','4043','4061','4062','4063','4151','4183','4188','4208','4307','4324',
+'4452','4502','4503','4506','4507','4519','4523','4528','4543','4568','4578','4631','4661','4689',
+'4704','4751','4755','4901','4902','4911','5019','5020','5021','5101','5108','5201','5214','5233',
+'5301','5332','5333','5401','5406','5411','5631','5706','5711','5713','5714','5801','5802','5803',
+'6098','6103','6113','6146','6178','6273','6301','6302','6305','6326','6361','6367','6471','6472',
+'6473','6501','6503','6504','6506','6526','6532','6594','6645','6701','6702','6723','6724','6752',
+'6753','6758','6762','6770','6841','6857','6861','6902','6920','6952','6954','6963','6971','6976',
+'6981','6988','7004','7011','7012','7013','7186','7201','7202','7203','7205','7211','7261','7267',
+'7269','7270','7272','7453','7532','7731','7733','7735','7741','7751','7752','7762','7832','7911',
+'7912','7951','7974','8001','8002','8015','8031','8053','8058','8113','8233','8252','8253','8267',
+'8304','8306','8308','8309','8316','8331','8411','8591','8601','8604','8628','8630','8697','8725',
+'8750','8766','8795','8801','8802','8804','8830','9001','9005','9007','9008','9009','9020','9021',
+'9022','9064','9101','9104','9107','9143','9147','9201','9202','9432','9433','9434','9501','9502',
+'9503','9531','9532','9602','9613','9684','9735','9766','9843','9983','9984'
+];
+let scBusy=false;
+async function scanNikkei(){
+  if(scBusy) return; scBusy=true;
+  const mode=document.querySelector('#sc-mode button.on').dataset.v;
+  const topN=Math.max(5,Math.min(50,+$('sc-top').value||20));
+  const out=$('sc-out'), total=NIKKEI225.length;
+  let done=0, fail=0; const rows=[];
+  out.innerHTML='<div class="empty"><span class="spin"></span>スキャン中… 0/'+total+'</div>';
+  const queue=[...NIKKEI225];
+  async function worker(){
+    while(queue.length){
+      const code=queue.shift(), sym=code+'.T';
+      try{
+        const ch=await yChart(sym,'1d', mode==='sig'?'2y':'6mo');
+        const c=ch.c, vol=ch.v, n=c.length;
+        if(n<60) throw 0;
+        if(mode==='sig'){
+          // ホームチャートの▲と同一判定: 最新バー時点の翌足アンサンブル確率
+          const p=signalProb(c, 20);
+          if(p!=null && p>=0.5+SIG_STRONG){
+            const rv0=rsiArr(c)[n-1];
+            const bb0=bollinger(c,20);
+            const dev0=bb0?(c[n-1]-bb0.mid[bb0.mid.length-1])/Math.max(bb0.sd[bb0.sd.length-1],1e-9):0;
+            const chg0=n>1?(c[n-1]/c[n-2]-1)*100:0;
+            rows.push({sym,code,score:p*100,price:c[n-1],chg:chg0,
+              cdText:'▲ P↑'+(p*100).toFixed(1)+'% / RSI '+rv0.toFixed(0)
+                +' / BB '+(dev0>=0?'+':'')+dev0.toFixed(1)+'σ'});
+          }
+          done++;
+          if(done%5===0||done===total)
+            out.innerHTML='<div class="empty"><span class="spin"></span>スキャン中… '+done+'/'+total
+              +' (▲点灯 '+rows.length+'件)</div>';
+          continue;
+        }
+        if(mode==='btm'){
+          // 底値反転: 直近0〜2日に安値を付け、反転の兆しがある銘柄
+          const oC=ch.o, hC=ch.h, lC=ch.l;
+          const look=Math.min(40,n);
+          const lows=lC.slice(-look);
+          let idxMin=0; for(let k=1;k<look;k++) if(lows[k]<lows[idxMin]) idxMin=k;
+          const daysSince=look-1-idxMin;            // 0=本日が底
+          const dd=1-lows[idxMin]/Math.max(...hC.slice(-look));  // 高値からの下落率
+          if(daysSince<=2 && dd>=0.05){
+            const rsiAll=rsiArr(c);
+            const rMin3=Math.min(...rsiAll.slice(-3));
+            const bb2=bollinger(c,20);
+            let devMin3=0;
+            if(bb2){ for(let j=Math.max(19,n-3); j<n; j++){
+              const k2=j-19;
+              const dv=(c[j]-bb2.mid[k2])/Math.max(bb2.sd[k2],1e-9);
+              if(dv<devMin3) devMin3=dv; } }
+            const md2=macdArr(c);
+            const histUp2= md2.hist[n-1]>md2.hist[n-2] && md2.hist[n-2]>md2.hist[n-3];
+            const v5b=mean(vol.slice(-5)), v60b=mean(vol.slice(-60));
+            const volR2=v60b>0?v5b/v60b:1;
+            // 直近3本の強気反転パターン (チャートと同じ認識エンジン)
+            const tail=70, off2=Math.max(0,n-tail);
+            const pats=detectPatterns(oC.slice(off2),hC.slice(off2),lC.slice(off2),c.slice(off2));
+            const recentBull=pats.filter(p=>p.dir>0 && p.i>=(n-off2)-3);
+            const names=recentBull.map(p=>p.name).slice(0,2);
+            // 反転の兆しゼロ(パターンもRSI底もなし)は除外
+            if(recentBull.length>0 || rMin3<=35){
+              const m1b=m1Bootstrap(logRet(c),3,600), m4b=m4Technical(c,20);
+              const pUpB=m1b?(m1b.pUp*0.5+m4b.pUp*0.5):m4b.pUp;
+              let sc2=dd*30 + (2-daysSince)*4;
+              sc2+=Math.min(recentBull.length,2)*12;
+              if(rMin3<=35) sc2+=8;
+              if(rsiAll[n-1]>rsiAll[n-2]) sc2+=5;
+              if(devMin3<=-1.8) sc2+=7;
+              if(histUp2) sc2+=6;
+              if(volR2>=1.3) sc2+=6;
+              if(c[n-1]>c[n-2]) sc2+=5;
+              sc2+=(pUpB-0.5)*40;
+              rows.push({sym,code,score:sc2,price:c[n-1],
+                chg:(c[n-1]/c[n-2]-1)*100,
+                cdText:'底打ち'+daysSince+'日前 / 下落'+(dd*100).toFixed(0)+'% / RSI '
+                  +rsiAll[n-1].toFixed(0)
+                  +(names.length?' / '+names.join('・'):'')
+                  +' / P↑'+(pUpB*100).toFixed(0)+'%'});
+            }
+          }
+          done++;
+          if(done%5===0||done===total)
+            out.innerHTML='<div class="empty"><span class="spin"></span>スキャン中… '+done+'/'+total
+              +' (候補 '+rows.length+'件)</div>';
+          continue;
+        }
+        const r=logRet(c);
+        const rv=rsiArr(c)[n-1];
+        const bb=bollinger(c,20);
+        const bbDev=bb?(c[n-1]-bb.mid[bb.mid.length-1])/Math.max(bb.sd[bb.sd.length-1],1e-9):0;
+        const {line,sig,hist}=macdArr(c);
+        const gx=line[n-1]>sig[n-1], grow=hist[n-1]>hist[n-2];
+        const macdTurn=(gx&&grow)?2:grow?1:0;
+        const v5=mean(vol.slice(-5)), v60=mean(vol.slice(-60));
+        const volR=v60>0?v5/v60:1;
+        const mom20=n>21?c[n-1]/c[n-21]-1:0;
+        const m1=m1Bootstrap(r,3,600), m4=m4Technical(c,20);
+        const pUp=m1?(m1.pUp*0.5+m4.pUp*0.5):m4.pUp;
+        const chg=n>1?(c[n-1]/c[n-2]-1)*100:0;
+        let score;
+        if(mode==='rev')
+          score=Math.max(0,45-rv)*1.2+Math.max(0,-bbDev)*12+macdTurn*8
+               +Math.min(volR,3)*6+(pUp-0.5)*40;
+        else
+          score=mom20*250+(rv>=50&&rv<=70?12:0)+(gx?10:0)
+               +Math.min(volR,3)*8+(pUp-0.5)*40;
+        rows.push({sym,code,score,price:c[n-1],chg,
+          cdText:'RSI '+rv.toFixed(0)+' / BB '+(bbDev>=0?'+':'')+bbDev.toFixed(1)
+            +'σ / 出来高×'+volR.toFixed(1)+' / P↑'+(pUp*100).toFixed(0)+'%'});
+      }catch(e){ fail++; }
+      done++;
+      if(done%5===0||done===total)
+        out.innerHTML='<div class="empty"><span class="spin"></span>スキャン中… '+done+'/'+total+'</div>';
+    }
+  }
+  await Promise.all([worker(),worker(),worker(),worker(),worker(),worker()]);
+  rows.sort((a,b)=>b.score-a.score);
+  const top=rows.slice(0,topN);
+  const modeName= mode==='sig'?'▲シグナル点灯中':mode==='btm'?'底値反転候補'
+    :mode==='rev'?'逆張り(反発候補)':'順張り(勢い)';
+  const filtered= (mode==='sig'||mode==='btm');
+  const summary= filtered
+    ? modeName+' '+rows.length+'銘柄 / 走査'+(total-fail)+'銘柄'+(fail?' (取得失敗'+fail+')':'')
+    : modeName+' / 走査'+rows.length+'銘柄'+(fail?' (取得失敗'+fail+')':'');
+  if(filtered&&!rows.length){
+    out.innerHTML='<div class="sub" style="margin:4px 0 6px">'+summary+'</div>'
+      +'<div class="empty">現在条件に合致する銘柄はありません</div>';
+    scBusy=false; return;
+  }
+  out.innerHTML=
+    '<div class="sub" style="margin:4px 0 6px">'+summary+'</div>'
+    + top.map((x,i)=>
+    `<div class="lrow" data-s="${x.sym}"><div class="grow">
+      <div class="nm3">${i+1}. ${x.code} <span class="sub mono">score ${x.score.toFixed(0)}</span></div>
+      <div class="cd">${x.cdText}</div></div>
+      <div class="pr"><div class="p1 mono">${fmt(x.price)}</div>
+      <div class="p2 mono ${x.chg>0?'up':x.chg<0?'dn':'neu'}">${(x.chg>=0?'+':'')+x.chg.toFixed(2)}%</div></div></div>`
+    ).join('');
+  out.querySelectorAll('.lrow[data-s]').forEach(rw=>rw.onclick=()=>{
+    switchView('home'); analyze(rw.dataset.s); });
+  scBusy=false;
+}
+
+
+
+function _updateFavIcon(on){
+  const btn=$('favbtn'), ico=$('fav-ico');
+  if(!btn) return;
+  btn.classList.toggle('on', on);
+  if(ico){ ico.querySelector('polygon').setAttribute('fill', on?'#e8c860':'none');
+           ico.querySelector('polygon').setAttribute('stroke', on?'#e8c860':'#8b95a7'); }
+}
+
+/* ---------- オープニング ---------- */
+function initSplash(){
+  const el=$('splash');
+  if(!el) return;
+  // 起動のたびに毎回表示 (注意事項の確認のため)
+  $('sp-start').onclick=()=>{
+    el.classList.add('hide');
+    setTimeout(()=>el.classList.add('gone'),520);
+  };
+}
+
+/* ---------- 初期化 ---------- */
+function init(){
+  buildTabs();
+  // nav
+  document.querySelectorAll('.nbtn').forEach(b=>b.onclick=()=>switchView(b.dataset.v));
+  // search
+  const go=v=>{ if(v&&v.trim()){ switchView('home'); analyze(v); } };
+  $('symin').addEventListener('keydown',e=>{ if(e.key==='Enter'){go(e.target.value); e.target.blur();} });
+  $('symin2').addEventListener('keydown',e=>{ if(e.key==='Enter')go(e.target.value); });
+  $('go2').onclick=()=>go($('symin2').value);
+  // fav
+  $('favbtn').onclick=()=>{ if(!state.symbol) return;
+    const i=state.favs.indexOf(state.symbol);
+    if(i>=0){ state.favs.splice(i,1); toast('お気に入りから削除しました'); }
+    else { state.favs.push(state.symbol); toast('お気に入りに追加しました'); }
+    LS.set('ss_favs',state.favs);
+    _updateFavIcon(state.favs.includes(state.symbol)); };
+  $('bellbtn').onclick=()=>switchView('alerts');
+  // chart config modal
+  $('cfgbtn').onclick=()=>{ const c=state.cfg;
+    $('cfg-bbn').value=c.bbn; $('cfg-bbshow').value=c.bbshow;
+    $('cfg-sma1').value=c.sma1; $('cfg-sma2').value=c.sma2;
+    $('cfg-bars').value=c.bars[state.tf]||TF[state.tf].bars;
+    $('cfg-sig').value=c.sig; $('cfg-pat').value=c.pat;
+    $('cfgmodal').classList.add('open'); };
+  $('cfg-apply').onclick=()=>{ const c=state.cfg;
+    c.bbn=Math.max(5,+$('cfg-bbn').value||20);
+    c.bbshow=$('cfg-bbshow').value;
+    c.sma1=Math.max(2,+$('cfg-sma1').value||5);
+    c.sma2=Math.max(2,+$('cfg-sma2').value||25);
+    c.bars[state.tf]=Math.max(20,Math.min(300,+$('cfg-bars').value||TF[state.tf].bars));
+    c.sig=$('cfg-sig').value; c.pat=$('cfg-pat').value;
+    saveCfg(); $('cfgmodal').classList.remove('open');
+    if(state.symbol) analyze(state.symbol); };
+  // 詳細チャート: ミニカードタップで起動
+  document.querySelectorAll('.mini').forEach(m=>m.onclick=openDetail);
+  document.querySelectorAll('#dtl-chips .chip').forEach(b=>b.onclick=()=>{
+    b.classList.toggle('on');
+    dtl[b.dataset.p]=b.classList.contains('on');
+    drawDetail(); });
+  const dc=$('dtlchart');
+  dc.addEventListener('pointerdown',dtlPointer);
+  dc.addEventListener('pointermove',e=>{ if(e.buttons||e.pointerType==='touch') dtlPointer(e); });
+  dc.addEventListener('touchstart',dtlPointer,{passive:false});
+  dc.addEventListener('touchmove',dtlPointer,{passive:false});
+  // modals close on backdrop
+  document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{
+    if(e.target===m) m.classList.remove('open'); }));
+  const showInfo=(title,body)=>{ $('info-title').textContent=title;
+    $('info-body').textContent=body||'まず銘柄を分析してください';
+    $('infomodal').classList.add('open'); };
+  $('detailbtn').onclick=()=>showInfo('予測詳細', state.lastReport);
+  // ミニカード→拡大オーバーレイ
+  document.querySelectorAll('.mini[data-ind]').forEach(m=>m.onclick=()=>openIndOverlay(m.dataset.ind));
+  $('ind-close').onclick=()=>$('indmodal').classList.remove('open');
+  let irz; window.addEventListener('resize',()=>{ clearTimeout(irz);
+    irz=setTimeout(()=>{ if($('indmodal').classList.contains('open')) drawIndOverlay(); },200); });
+  $('modeldetail').onclick=()=>showInfo('モデル詳細', state.lastModelReport);
+  $('sigall').onclick=()=>{
+    const d=state.data;
+    const body= state.patterns.length? state.patterns.map((pt,i)=>{
+      const dt=new Date((d.ts[pt.i]+32400)*1000);
+      return `${String(i+1).padStart(2)}. ${pt.name} [${pt.dir>0?'強気':pt.dir<0?'弱気':'中立'}] ${(dt.getUTCMonth()+1)}/${dt.getUTCDate()}`;
+    }).join('\n'):'検出なし';
+    showInfo('シグナル一覧 (番号=チャート上の数字)', body); };
+  // alerts
+  document.querySelectorAll('#al-cond button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#al-cond button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); });
+  $('al-add').onclick=async()=>{
+    const sym=normSym($('al-sym').value||state.symbol);
+    const price=+$('al-price').value;
+    if(!sym||!price){ toast('銘柄と価格を入力してください'); return; }
+    const cond=document.querySelector('#al-cond button.on').dataset.v;
+    state.alerts.push({sym,cond,price,fired:null});
+    LS.set('ss_alerts',state.alerts); refreshAlertList();
+    toast('アラートを追加しました');
+    if('Notification' in window && Notification.permission==='default')
+      try{ await Notification.requestPermission(); }catch(e){} };
+  // screening
+  $('runscreen').onclick=runScreening;
+  document.querySelectorAll('#sc-mode button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#sc-mode button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); });
+  $('sc-run').onclick=scanNikkei;
+  // settings
+  $('set-proxy').value=state.cfg.proxy;
+  $('set-customproxy').value=state.cfg.customproxy;
+  $('set-live').value=state.cfg.live;
+  $('customproxyrow').style.display= state.cfg.proxy==='custom'?'flex':'none';
+  $('set-proxy').onchange=e=>{ state.cfg.proxy=e.target.value; saveCfg();
+    $('customproxyrow').style.display= e.target.value==='custom'?'flex':'none'; };
+  $('set-customproxy').onchange=e=>{ state.cfg.customproxy=e.target.value.trim(); saveCfg(); };
+  $('set-live').onchange=e=>{ state.cfg.live=e.target.value; saveCfg(); };
+  $('clearcache').onclick=()=>{ localStorage.clear();
+    caches?.keys().then(ks=>ks.forEach(k=>caches.delete(k)));
+    toast('初期化しました。再読み込みします'); setTimeout(()=>location.reload(),900); };
+  // resize redraw
+  let rz; window.addEventListener('resize',()=>{ clearTimeout(rz);
+    rz=setTimeout(()=>{ if(state.data) drawChart(); },200); });
+  // live loops
+  let lastMin=-1, last5=-1, last1=-1;
+  setInterval(async()=>{
+    if(state.cfg.live!=='1'||state.busy) return;
+    const now=Date.now()/1000;
+    const mSlot=(now/60)|0;
+    if(mSlot!==lastMin){ lastMin=mSlot;
+      if(state.symbol){ try{ const q=await yQuote(state.symbol);
+        if(q.price!=null&&state.data) renderQuoteOnly(q); }catch(e){} }
+      checkAlerts();
+      if(state.tf==='1m'&&state.symbol&&state.data) analyze(state.symbol,true);
+    }
+    const s5=(now/300)|0;
+    if(s5!==last5){ last5=s5;
+      if(state.tf==='5m'&&state.symbol&&state.data) analyze(state.symbol,true); }
+  },1000);
+  function renderQuoteOnly(q){
+    const p=q.price,pv=q.prev;
+    $('qprice').innerHTML=fmt(p,p<100?2:1)+'<small>円</small>';
+    if(pv){ const df=p-pv,pc=df/pv*100,cls=df>0?'up':df<0?'dn':'neu';
+      $('qchg').className='qchg mono '+cls;
+      $('qchg').textContent=`${df>=0?'+':''}${fmt(df)}円 (${df>=0?'+':''}${pc.toFixed(2)}%)`; }
+    $('qts').textContent=new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+' 更新';
+    // topbarのlivebar更新
+    const lb=$('livebar');
+    if(lb&&q.price!=null&&q.prev!=null){
+      const df=q.price-q.prev,pc=df/q.prev*100;
+      lb.textContent=state.symbol.replace('.T','')+' '
+        +q.price.toLocaleString('ja-JP')+'円 '
+        +(df>=0?'▲':' ▼')+Math.abs(df).toFixed(1)+'('+Math.abs(pc).toFixed(2)+'%) '
+        +new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'更新';
+      lb.style.color=df>0?'var(--bull2)':df<0?'var(--bear)':'var(--sub)';
+    }
+  }
+  // SW
+  if('serviceWorker' in navigator)
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  // 起動時: 前回銘柄を復元
+  if(state.symbol){ $('symin').value=state.symbol.replace('.T',''); analyze(state.symbol); }
+  initSplash();
+}
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
