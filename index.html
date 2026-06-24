@@ -534,6 +534,14 @@ h2.vt{font-size:17px;font-weight:900;margin:4px 2px 14px}
     <button class="link" id="ind-close" style="font-size:20px;padding:0 6px">×</button>
   </div>
   <div id="ind-chips" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px"></div>
+  <!-- PIT コントロール -->
+  <div id="pit-bar" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <span style="font-size:11px;color:#8b95a7;white-space:nowrap">🕐 PIT再現</span>
+    <input type="range" id="pit-slider" min="0" max="100" value="100"
+      style="flex:1;min-width:100px;accent-color:#22d3ee">
+    <span id="pit-date" style="font-size:11px;color:#22d3ee;min-width:52px;text-align:right">--</span>
+    <button id="pit-clear" class="link" style="font-size:11px;padding:2px 6px;opacity:.6">解除</button>
+  </div>
   <canvas id="ind-canvas" style="width:100%;display:block;border-radius:10px"></canvas>
   <div class="note" id="ind-note" style="margin-top:10px"></div>
 </div></div>
@@ -1423,8 +1431,24 @@ const IND_DEFS = {
 };
 const indState = { sel:{candle:true, rsi:true}, openedBy:null };
 
+/* ===== PIT (Point-in-Time リプレイ) state ===== */
+const pitState = {
+  active: false,      // PITモードON/OFF
+  cursorIdx: null,    // 表示データ配列(d.c)上のindex (0〜n-1)
+};
+function pitSetCursor(idx){
+  pitState.cursorIdx = idx;
+  pitState.active = (idx !== null);
+}
+function pitClear(){
+  pitState.active = false;
+  pitState.cursorIdx = null;
+}
+
 function openIndOverlay(primary){
   if(!state.data){ toast('まず銘柄を分析してください'); return; }
+  // PITをリセットしてからモーダルを開く
+  pitClear();
   // タップした指標をデフォルトON + ローソク足は常時
   indState.sel = {candle:true};
   if(primary==='rsi') indState.sel.rsi=true;
@@ -1432,6 +1456,11 @@ function openIndOverlay(primary){
   else if(primary==='bb') indState.sel.bb=true;
   indState.openedBy=primary;
   buildIndChips();
+  // PITスライダー初期化
+  const n=state.data.c.length;
+  const sl=$('pit-slider');
+  sl.max=n-1; sl.value=n-1;
+  $('pit-date').textContent='--';
   $('indmodal').classList.add('open');
   requestAnimationFrame(drawIndOverlay);
 }
@@ -1455,22 +1484,59 @@ function drawIndOverlay(){
   const sel=indState.sel;
   const c=d.c, o=d.o, h=d.h, l=d.l, ts=d.ts, n=c.length;
   const cFull=d.cFull;
-  const ens=state.ens;
-  const steps= ens?ens.steps:0;
-  // 予測価格パス(中央値)をcFullへ連結し、指標を予測区間まで延長計算
-  const medPath= ens?ens.fan.med:[];
-  const cExt= ens? cFull.concat(medPath) : cFull;
+  // ===== PIT (Point-in-Time) 対応 =====
+  // pitState.active=trueのとき cursorIdx時点を"今"として予測エンジンを再実行
+  const isPit = pitState.active && pitState.cursorIdx !== null;
+  const pitIdx = isPit ? Math.min(pitState.cursorIdx, n-1) : n-1;
+
+  // PITモード: カーソル以前のcFullスライスで予測を再生成
+  // 通常モード: state.ensをそのまま使用
+  let ensUsed, cFullForEns;
+  if(isPit){
+    // cFull上のカーソル位置を計算（d.cはcFullの末尾n本）
+    const cFullCursorIdx = cFull.length - n + pitIdx;
+    cFullForEns = cFull.slice(0, cFullCursorIdx + 1);
+    // m5/m6はPITでは再取得できないため既存値を流用（当時近似）
+    ensUsed = ensemble(cFullForEns, state.ens ? state.ens.steps : 3,
+                       state.ens ? state.ens.m5 : null,
+                       state.ens ? state.ens.m6 : null);
+  } else {
+    ensUsed = state.ens;
+    cFullForEns = cFull;
+  }
+
+  const steps= ensUsed ? ensUsed.steps : 0;
+  // 予測価格パス(中央値)を連結し、指標を予測区間まで延長計算
+  const medPath= ensUsed ? ensUsed.fan.med : [];
+  const cExt= ensUsed ? cFullForEns.concat(medPath) : cFullForEns;
+
   // 表示区間: 実測n本 + 予測steps本
+  // PITモード: カーソルより右(未来)は実測ローソクをそのまま追加表示
   const tailExt=a=>a.slice(-(n+steps));
   const rsiExt=tailExt(rsiArr(cExt));
   const mdE=macdArr(cExt);
   const macdLe=tailExt(mdE.line), macdSe=tailExt(mdE.sig), macdHe=tailExt(mdE.hist);
   const bbFull=bollinger(cFull, state.cfg.bbn);
-  // 実測部の系列 (末尾n本)
+
+  // PITモード: カーソル以前の実測指標は当時の目線で計算済み(cExt=過去のみ)
+  // カーソル以降の実測指標は通常計算値を使用（段差は意図的）
+  const rsiFullNormal = rsiArr(cFull).slice(-n);
+  const mdNormal = macdArr(cFull);
+  const macdLN=mdNormal.line.slice(-n), macdSN=mdNormal.sig.slice(-n), macdHN=mdNormal.hist.slice(-n);
+
+  // PITモード: 0〜pitIdx → 当時値、pitIdx+1〜n-1 → 通常値（段差あり）
   const tail=a=>a.slice(-n);
-  const rsiFull=rsiExt.slice(0,n);
-  const macdL=macdLe.slice(0,n), macdS=macdSe.slice(0,n), macdH=macdHe.slice(0,n);
-  // 予測部 (steps本)
+  let rsiFull, macdL, macdS, macdH;
+  if(isPit){
+    rsiFull   = rsiFullNormal.map((v,i)=> i<=pitIdx ? rsiExt[i]    : v);
+    macdL     = macdLN.map((v,i)=>        i<=pitIdx ? macdLe[i]    : v);
+    macdS     = macdSN.map((v,i)=>        i<=pitIdx ? macdSe[i]    : v);
+    macdH     = macdHN.map((v,i)=>        i<=pitIdx ? macdHe[i]    : v);
+  } else {
+    rsiFull = rsiExt.slice(0,n);
+    macdL=macdLe.slice(0,n); macdS=macdSe.slice(0,n); macdH=macdHe.slice(0,n);
+  }
+  // 予測部 (steps本) ※PITモードではカーソル時点からの予測ファン
   const rsiFc=rsiExt.slice(n), macdLfc=macdLe.slice(n), macdSfc=macdSe.slice(n), macdHfc=macdHe.slice(n);
   // ペイン構成: 価格(常時) + 選択されたpane系
   const panes=[{type:'price'}];
@@ -1487,7 +1553,7 @@ function drawIndOverlay(){
   const plotW=W-padL-padR;
   const xTot=n+steps+(steps?1:0);   // 予測ぶんを横軸に確保
   const X=i=>padL+(i+0.5)*plotW/xTot;
-  const fcOn= steps>0 && ens;
+  const fcOn= steps>0 && ensUsed;
 
   // 各ペインのY起点
   let yTop=padT;
@@ -1503,8 +1569,19 @@ function drawIndOverlay(){
   for(let i=0;i<n;i+=stepT){
     ctx.beginPath(); ctx.moveTo(X(i),padT); ctx.lineTo(X(i),H-padB); ctx.stroke();
   }
-  // 予測境界の縦点線 (全ペイン貫通)
-  if(fcOn){
+  // 縦線: PITカーソル(オレンジ) または 予測境界(シアン)
+  if(isPit){
+    const bx=X(pitIdx);
+    ctx.setLineDash([4,3]); ctx.strokeStyle='rgba(255,180,0,.7)'; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.moveTo(bx,padT); ctx.lineTo(bx,H-padB); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineWidth=1;
+    if(d.ts && d.ts[pitIdx]){
+      const dt=new Date((d.ts[pitIdx]+32400)*1000);
+      const lab='PIT:'+(dt.getUTCMonth()+1)+'/'+(dt.getUTCDate());
+      ctx.fillStyle='rgba(255,180,0,.9)'; ctx.font='bold 9px Roboto Mono';
+      ctx.fillText(lab, bx+3, padT+10);
+    }
+  } else if(fcOn){
     const bxLine=padL+(n)*plotW/xTot;
     ctx.setLineDash([3,3]); ctx.strokeStyle='rgba(34,211,238,.4)';
     ctx.beginPath(); ctx.moveTo(bxLine,padT); ctx.lineTo(bxLine,H-padB);
@@ -1518,7 +1595,7 @@ function drawIndOverlay(){
     const up=tail(bbFull.mid).map((m,i)=>m+2*tail(bbFull.sd)[i]);
     const lo=tail(bbFull.mid).map((m,i)=>m-2*tail(bbFull.sd)[i]);
     yMin=Math.min(yMin,...lo); yMax=Math.max(yMax,...up); }
-  if(fcOn){ yMin=Math.min(yMin,...ens.fan.p5); yMax=Math.max(yMax,...ens.fan.p95); }
+  if(fcOn){ yMin=Math.min(yMin,...ensUsed.fan.p5); yMax=Math.max(yMax,...ensUsed.fan.p95); }
   const pad=(yMax-yMin)*0.05; yMin-=pad; yMax+=pad;
   const Yp=v=>pr.top+pr.h*(1-(v-yMin)/(yMax-yMin));
   // グリッド横+ラベル
@@ -1560,15 +1637,17 @@ function drawIndOverlay(){
   }
   // 価格予測ファン (帯 + 中央値実線)
   if(fcOn){
-    const fan=ens.fan, bx=X(n-1), by=Yp(c[n-1]);
+    const fan=ensUsed.fan;
+    const bx= isPit ? X(pitIdx) : X(n-1);
+    const by= isPit ? Yp(c[pitIdx]) : Yp(c[n-1]);
     const poly=(upArr,loArr,al)=>{ ctx.beginPath(); ctx.moveTo(bx,by);
-      upArr.forEach((v,j)=>ctx.lineTo(X(n+j),Yp(v)));
-      for(let j=loArr.length-1;j>=0;j--) ctx.lineTo(X(n+j),Yp(loArr[j]));
+      upArr.forEach((v,j)=>ctx.lineTo(X(isPit?pitIdx+1+j:n+j),Yp(v)));
+      for(let j=loArr.length-1;j>=0;j--) ctx.lineTo(X(isPit?pitIdx+1+j:n+j),Yp(loArr[j]));
       ctx.lineTo(bx,by); ctx.closePath();
       ctx.fillStyle='#22d3ee'; ctx.globalAlpha=al; ctx.fill(); ctx.globalAlpha=1; };
     poly(fan.p95,fan.p5,.10); poly(fan.p84,fan.p16,.20);
     ctx.beginPath(); ctx.moveTo(bx,by);
-    fan.med.forEach((v,j)=>ctx.lineTo(X(n+j),Yp(v)));
+    fan.med.forEach((v,j)=>ctx.lineTo(X(isPit?pitIdx+1+j:n+j),Yp(v)));
     ctx.strokeStyle='#22d3ee'; ctx.lineWidth=2; ctx.stroke();
   }
   ctx.fillStyle='#8b95a7'; ctx.font='10px Roboto Mono';
@@ -1587,11 +1666,12 @@ function drawIndOverlay(){
     ctx.strokeStyle='#22d3ee'; ctx.lineWidth=1.4; ctx.beginPath();
     rsiFull.forEach((v,i)=>{ const x=X(i),y=Yr(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
     ctx.stroke();
-    // RSI予測延長 (実測終端から続けて実線・同色)
+    // RSI予測延長 (カーソル終端/実測終端から続けて・同色・淡)
     if(fcOn && rsiFc.length){
+      const sx= isPit?pitIdx:n-1;
       ctx.beginPath();
-      ctx.moveTo(X(n-1), Yr(rsiFull[n-1]));
-      rsiFc.forEach((v,j)=>ctx.lineTo(X(n+j), Yr(v)));
+      ctx.moveTo(X(sx), Yr(rsiFull[sx]));
+      rsiFc.forEach((v,j)=>ctx.lineTo(X(isPit?pitIdx+1+j:n+j), Yr(v)));
       ctx.strokeStyle='#22d3ee'; ctx.globalAlpha=.55; ctx.lineWidth=1.6;
       ctx.stroke(); ctx.globalAlpha=1;
     }
@@ -1613,16 +1693,17 @@ function drawIndOverlay(){
       const y0=Ym(0), y1=Ym(v); ctx.fillRect(X(i)-bw/2, Math.min(y0,y1), bw, Math.abs(y1-y0)); });
     // ヒストグラム (予測・淡色)
     if(fcOn) macdHfc.forEach((v,j)=>{ ctx.fillStyle= v>=0?'rgba(34,197,94,.28)':'rgba(239,68,68,.28)';
-      const y0=Ym(0), y1=Ym(v); ctx.fillRect(X(n+j)-bw/2, Math.min(y0,y1), bw, Math.abs(y1-y0)); });
+      const y0=Ym(0), y1=Ym(v); ctx.fillRect(X(isPit?pitIdx+1+j:n+j)-bw/2, Math.min(y0,y1), bw, Math.abs(y1-y0)); });
     // MACD線/シグナル線 (実測)
     const drawL=(a,col)=>{ ctx.strokeStyle=col; ctx.lineWidth=1.3; ctx.beginPath();
       a.forEach((v,i)=>{ const x=X(i),y=Ym(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); };
     drawL(macdS,'#a78bfa'); drawL(macdL,'#ffd54f');
-    // 予測延長 (実測終端から続けて・同色・淡)
+    // 予測延長 (カーソル/実測終端から続けて・同色・淡)
     if(fcOn){
+      const sx= isPit?pitIdx:n-1;
       const ext=(base,fc,col)=>{ ctx.beginPath();
-        ctx.moveTo(X(n-1), Ym(base[n-1]));
-        fc.forEach((v,j)=>ctx.lineTo(X(n+j), Ym(v)));
+        ctx.moveTo(X(sx), Ym(base[sx]));
+        fc.forEach((v,j)=>ctx.lineTo(X(isPit?pitIdx+1+j:n+j), Ym(v)));
         ctx.strokeStyle=col; ctx.globalAlpha=.5; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha=1; };
       ext(macdS, macdSfc, '#a78bfa'); ext(macdL, macdLfc, '#ffd54f');
     }
@@ -1653,10 +1734,12 @@ function drawIndOverlay(){
   if(fcOn){ ctx.fillStyle='#22d3ee';
     ctx.fillText(tf.fcLabel, X(n+steps-1)-12, H-7); }
   // 凡例ノート
-  $('ind-note').textContent='チップで指標をON/OFF。シアンの縦点線より右は予測区間です。'
-    +'価格はファン(中央値=実線+68/90%帯)、RSI・MACDは予測価格パスから延長した推定値を'
-    +'同色の淡線で表示。全ペインが時間軸を共有するので、'
-    +'予測上のGX/DX・RSI反転のタイミングを縦位置で照合できます。';
+  $('ind-note').textContent= isPit
+    ? 'PIT再現モード: オレンジ縦線の時点を「今」として予測エンジンを再実行。左側は当時の目線で計算。右側（縦線以降）は実際の値動き。段差＝当時の認識のズレ。'
+    : 'チップで指標をON/OFF。シアンの縦点線より右は予測区間です。'
+      +'価格はファン(中央値=実線+68/90%帯)、RSI・MACDは予測価格パスから延長した推定値を'
+      +'同色の淡線で表示。全ペインが時間軸を共有するので、'
+      +'予測上のGX/DX・RSI反転のタイミングを縦位置で照合できます。';
 }
 
 /* ---------- メイン解析フロー ---------- */
@@ -2160,7 +2243,32 @@ function init(){
   $('detailbtn').onclick=()=>showInfo('予測詳細', state.lastReport);
   // ミニカード→拡大オーバーレイ
   document.querySelectorAll('.mini[data-ind]').forEach(m=>m.onclick=()=>openIndOverlay(m.dataset.ind));
-  $('ind-close').onclick=()=>$('indmodal').classList.remove('open');
+  $('ind-close').onclick=()=>{ pitClear(); $('indmodal').classList.remove('open'); };
+  // PIT スライダー
+  $('pit-slider').addEventListener('input', e=>{
+    if(!state.data) return;
+    const n=state.data.c.length;
+    const idx=parseInt(e.target.value);
+    if(idx>=n-1){
+      // 右端 = PITモード解除（通常表示）
+      pitClear();
+      $('pit-date').textContent='--';
+    } else {
+      pitSetCursor(idx);
+      if(state.data.ts && state.data.ts[idx]){
+        const dt=new Date((state.data.ts[idx]+32400)*1000);
+        $('pit-date').textContent=(dt.getUTCMonth()+1)+'/'+(dt.getUTCDate());
+      }
+    }
+    drawIndOverlay();
+  });
+  $('pit-clear').onclick=()=>{
+    if(!state.data) return;
+    pitClear();
+    $('pit-slider').value=$('pit-slider').max;
+    $('pit-date').textContent='--';
+    drawIndOverlay();
+  };
   let irz; window.addEventListener('resize',()=>{ clearTimeout(irz);
     irz=setTimeout(()=>{ if($('indmodal').classList.contains('open')) drawIndOverlay(); },200); });
   $('modeldetail').onclick=()=>showInfo('モデル詳細', state.lastModelReport);
