@@ -199,4 +199,4 @@ URLバーを消すのも GT DASH と同様。
 
 ---
 
-Powered by **藤井工藝** / Mirage Ensemble+
+Powered by **藤井工藝**
