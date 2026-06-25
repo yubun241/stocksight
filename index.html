@@ -1735,14 +1735,14 @@ function drawIndOverlay(){
         ctx.strokeStyle=col; ctx.globalAlpha=.5; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha=1; };
       ext(macdS, macdSfc, '#a78bfa'); ext(macdL, macdLfc, '#ffd54f');
     }
-    // クロス点マーカー (実測+予測連結で判定)
+    // クロス点マーカー (実測部のみ。予測区間i>=nのもつれは描かない)
     const fullL= fcOn?macdL.concat(macdLfc):macdL, fullS= fcOn?macdS.concat(macdSfc):macdS;
-    for(let i=1;i<fullL.length;i++){
+    for(let i=1;i<n;i++){
       if((fullL[i]-fullS[i])*(fullL[i-1]-fullS[i-1])<=0){
         const x=X(i), y=Ym((fullL[i]+fullS[i])/2);
         ctx.beginPath(); ctx.arc(x,y,3,0,7);
         ctx.fillStyle= fullL[i]>=fullS[i]?'#22c55e':'#ef4444';
-        ctx.globalAlpha= i>=n?.6:1; ctx.fill(); ctx.globalAlpha=1;
+        ctx.fill();
         ctx.strokeStyle='#0a0e16'; ctx.lineWidth=1; ctx.stroke();
       }
     }
