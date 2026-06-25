@@ -1510,34 +1510,55 @@ function drawIndOverlay(){
   const medPath= ensUsed ? ensUsed.fan.med : [];
   const cExt= ensUsed ? cFullForEns.concat(medPath) : cFullForEns;
 
-  // 表示区間: 実測n本 + 予測steps本
-  // PITモード: カーソルより右(未来)は実測ローソクをそのまま追加表示
-  const tailExt=a=>a.slice(-(n+steps));
-  const rsiExt=tailExt(rsiArr(cExt));
+  // 予測部の指標（カーソル/実測終端からの延長）。cExtの末尾steps本。
+  const rsiExtAll=rsiArr(cExt);
   const mdE=macdArr(cExt);
-  const macdLe=tailExt(mdE.line), macdSe=tailExt(mdE.sig), macdHe=tailExt(mdE.hist);
-  const bbFull=bollinger(cFull, state.cfg.bbn);
+  const rsiFc = rsiExtAll.slice(-steps);
+  const macdLfc=mdE.line.slice(-steps), macdSfc=mdE.sig.slice(-steps), macdHfc=mdE.hist.slice(-steps);
 
-  // PITモード: カーソル以前の実測指標は当時の目線で計算済み(cExt=過去のみ)
-  // カーソル以降の実測指標は通常計算値を使用（段差は意図的）
-  const rsiFullNormal = rsiArr(cFull).slice(-n);
-  const mdNormal = macdArr(cFull);
-  const macdLN=mdNormal.line.slice(-n), macdSN=mdNormal.sig.slice(-n), macdHN=mdNormal.hist.slice(-n);
-
-  // PITモード: 0〜pitIdx → 当時値、pitIdx+1〜n-1 → 通常値（段差あり）
-  const tail=a=>a.slice(-n);
-  let rsiFull, macdL, macdS, macdH;
-  if(isPit){
-    rsiFull   = rsiFullNormal.map((v,i)=> i<=pitIdx ? rsiExt[i]    : v);
-    macdL     = macdLN.map((v,i)=>        i<=pitIdx ? macdLe[i]    : v);
-    macdS     = macdSN.map((v,i)=>        i<=pitIdx ? macdSe[i]    : v);
-    macdH     = macdHN.map((v,i)=>        i<=pitIdx ? macdHe[i]    : v);
-  } else {
-    rsiFull = rsiExt.slice(0,n);
-    macdL=macdLe.slice(0,n); macdS=macdSe.slice(0,n); macdH=macdHe.slice(0,n);
+  // 絶対index→表示index変換ヘルパー: 任意の全長系列をcFull基準のn本に揃える
+  // arrFull は cFull と同じ長さの系列、arrPit は cFullForEns と同じ長さの系列。
+  // PITモード: 表示i<=pitIdx は当時値、それ以降は通常値（段差は意図的）。
+  function pitMerge(arrFull, arrPit){
+    const dispFull = arrFull.slice(-n);
+    if(!isPit) return dispFull;
+    // arrPitは先頭からcFullForEns長。絶対indexはcFullと共通なのでcFull長に展開。
+    const padded = new Array(cFull.length).fill(null);
+    for(let i=0;i<arrPit.length;i++) padded[i]=arrPit[i];
+    const dispPit = padded.slice(-n);
+    return dispFull.map((v,i)=> i<=pitIdx ? (dispPit[i]!=null?dispPit[i]:v) : v);
   }
-  // 予測部 (steps本) ※PITモードではカーソル時点からの予測ファン
-  const rsiFc=rsiExt.slice(n), macdLfc=macdLe.slice(n), macdSfc=macdSe.slice(n), macdHfc=macdHe.slice(n);
+
+  // BBを終値index(0〜)に揃える
+  function bbAlign(bbres, srcLen){
+    const out=new Array(srcLen).fill(null);
+    if(!bbres) return out;
+    for(let k=0;k<bbres.xi.length;k++) out[bbres.xi[k]]={mid:bbres.mid[k], sd:bbres.sd[k]};
+    return out;
+  }
+  // --- BB ---
+  const bbFullArr = bbAlign(bollinger(cFull, state.cfg.bbn), cFull.length);
+  const bbPitArr  = isPit ? bbAlign(bollinger(cFullForEns, state.cfg.bbn), cFullForEns.length) : null;
+  let bbDisp;
+  {
+    const dispFull = bbFullArr.slice(-n);
+    if(isPit){
+      const padded=new Array(cFull.length).fill(null);
+      for(let i=0;i<bbPitArr.length;i++) padded[i]=bbPitArr[i];
+      const dispPit=padded.slice(-n);
+      bbDisp = dispFull.map((v,i)=> i<=pitIdx ? (dispPit[i]||v) : v);
+    } else bbDisp = dispFull;
+  }
+
+  // --- RSI / MACD（絶対index基準でPIT合成）---
+  const rsiFull = pitMerge(rsiArr(cFull), isPit ? rsiArr(cFullForEns) : null);
+  const mdFull = macdArr(cFull);
+  const mdPit  = isPit ? macdArr(cFullForEns) : null;
+  const macdL = pitMerge(mdFull.line, isPit ? mdPit.line : null);
+  const macdS = pitMerge(mdFull.sig,  isPit ? mdPit.sig  : null);
+  const macdH = pitMerge(mdFull.hist, isPit ? mdPit.hist : null);
+
+  const tail=a=>a.slice(-n);
   // ペイン構成: 価格(常時) + 選択されたpane系
   const panes=[{type:'price'}];
   if(sel.rsi) panes.push({type:'rsi'});
@@ -1591,10 +1612,9 @@ function drawIndOverlay(){
   // ===== 価格ペイン =====
   const pr=paneRect.price;
   let yMin=Math.min(...l), yMax=Math.max(...h);
-  if(sel.bb && bbFull){ const kn=tail(bbFull.mid).map((m,i)=>m);
-    const up=tail(bbFull.mid).map((m,i)=>m+2*tail(bbFull.sd)[i]);
-    const lo=tail(bbFull.mid).map((m,i)=>m-2*tail(bbFull.sd)[i]);
-    yMin=Math.min(yMin,...lo); yMax=Math.max(yMax,...up); }
+  if(sel.bb){
+    bbDisp.forEach(b=>{ if(b){ yMin=Math.min(yMin, b.mid-2*b.sd); yMax=Math.max(yMax, b.mid+2*b.sd); }});
+  }
   if(fcOn){ yMin=Math.min(yMin,...ensUsed.fan.p5); yMax=Math.max(yMax,...ensUsed.fan.p95); }
   const pad=(yMax-yMin)*0.05; yMin-=pad; yMax+=pad;
   const Yp=v=>pr.top+pr.h*(1-(v-yMin)/(yMax-yMin));
@@ -1604,18 +1624,26 @@ function drawIndOverlay(){
     ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
     ctx.fillText(Math.round(v).toLocaleString(), 2, y+3); }
   // BB
-  if(sel.bb && bbFull){
-    const mid=tail(bbFull.mid), sd=tail(bbFull.sd);
+  if(sel.bb){
+    // null区間で線を途切れさせるためのパス描画ヘルパー
+    const drawBand=(valFn,col,al,dash)=>{
+      ctx.strokeStyle=col; ctx.globalAlpha=al; ctx.lineWidth=1;
+      if(dash) ctx.setLineDash(dash);
+      let pen=false;
+      bbDisp.forEach((b,i)=>{
+        if(!b){ pen=false; return; }
+        const x=X(i), y=Yp(valFn(b));
+        if(pen) ctx.lineTo(x,y); else { ctx.beginPath(); ctx.moveTo(x,y); pen=true; }
+        // 次がnullなら一旦stroke
+        if(i+1>=bbDisp.length || !bbDisp[i+1]){ ctx.stroke(); pen=false; }
+      });
+      ctx.globalAlpha=1; if(dash) ctx.setLineDash([]);
+    };
     [[2,'#f59e0b'],[1,'#22c55e']].forEach(([k,col])=>{
-      ctx.strokeStyle=col; ctx.globalAlpha=.7; ctx.lineWidth=1;
-      [1,-1].forEach(sgn=>{ ctx.beginPath();
-        mid.forEach((m,i)=>{ const x=X(i), y=Yp(m+sgn*k*sd[i]);
-          i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); });
-      ctx.globalAlpha=1;
+      drawBand(b=>b.mid+k*b.sd, col, .7);
+      drawBand(b=>b.mid-k*b.sd, col, .7);
     });
-    ctx.setLineDash([2,3]); ctx.strokeStyle='#cbd5e1'; ctx.beginPath();
-    mid.forEach((m,i)=>{ const x=X(i); i?ctx.lineTo(x,Yp(m)):ctx.moveTo(x,Yp(m)); });
-    ctx.stroke(); ctx.setLineDash([]);
+    drawBand(b=>b.mid, '#cbd5e1', 1, [2,3]);
   }
   // SMA
   if(sel.sma){
