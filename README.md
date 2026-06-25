@@ -1,6 +1,6 @@
 # StockSight — 個別株分析・予測 PWA
 
-**藤井工藝 / Fujii Kogei** ・ Mirage Ensemble+
+**藤井工藝 / Fujii Kogei**
 
 個別株の価格・テクニカル指標・統計的予測を1画面に統合した分析PWA。
 GitHub Pages でホストし、Android では TWA としても配信可能。
