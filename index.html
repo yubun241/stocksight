@@ -817,19 +817,52 @@ async function m6Macro(symbol){
   }catch(e){ return null; }
 }
 
-function ensemble(closeFull, steps, m5res, m6res){
+/* ---------- M7: ローソク足パターンスコアリング ---------- */
+const M7_GRP_W = {'酒田':1.00,'3本':0.70,'継続':0.60,'2本':0.50,'窓':0.40,'単体':0.20};
+const M7_WIN = 14, M7_ALPHA = 0.5;
+
+function m7Pattern(o, h, l, c){
+  const pats = detectPatterns(o, h, l, c);
+  const T = c.length - 1;
+  // 直近14本以内のパターンに絞り込み
+  const recent = pats.filter(p => (T - p.i) <= M7_WIN);
+  if(recent.length === 0) return {pUp:0.5, score:0, detail:[]};
+
+  let score = 0;
+  const detail = [];
+  for(const p of recent){
+    const d = T - p.i;                                      // 何本前か
+    const wGrp = M7_GRP_W[p.grp] ?? 0.20;                  // グループ重み
+    const wTime = Math.max(0, 1 - d / M7_WIN);              // 時系列重み (線形減衰)
+    const contrib = p.dir * wGrp * wTime;
+    score += contrib;
+    detail.push({name:p.name, grp:p.grp, dir:p.dir, dBars:d, wGrp, wTime,
+                 contrib:+contrib.toFixed(4)});
+  }
+  // 時系列順（古い→新しい）に並べ替えて可読性向上
+  detail.sort((a,b) => b.dBars - a.dBars);
+  const pUp = 1 / (1 + Math.exp(-M7_ALPHA * score));
+  return {pUp, score:+score.toFixed(4), detail};
+}
+
+function ensemble(closeFull, steps, m5res, m6res, oFull, hFull, lFull){
   const r=logRet(closeFull), s0=closeFull[closeFull.length-1];
   const m1=m1Bootstrap(r,steps), m2=m2Knn(r,steps),
         m3=m3Ar1(r,steps), m4=m4Technical(closeFull, state.cfg.bbn);
+  // M7: OHLC全系列が渡された場合のみ有効
+  const m7 = (oFull && hFull && lFull)
+    ? m7Pattern(oFull, hFull, lFull, closeFull)
+    : null;
   const votes=[],ws=[],detail=[];
   const add=(m,w,label,info)=>{ if(m){votes.push(m.pUp);ws.push(w);
     detail.push({label,p:m.pUp,info});} };
-  add(m1,0.22,'[M1] ブートストラップMC','実分布再標本化');
-  add(m2,0.27,'[M2] パターン類似kNN', m2?`類似${m2.k}局面中${m2.nUp}件上昇`:'');
-  add(m3,0.09,'[M3] 自己相関AR(1)', m3?`ρ=${m3.rho.toFixed(2)} ${m3.regime}`:'');
-  add(m4,0.18,'[M4] テクニカル',`スコア${m4.score>=0?'+':''}${m4.score}`);
-  add(m5res,0.13,'[M5] ニュースKW',`P:${m5res.pos}/N:${m5res.neg}`);
-  add(m6res,0.11,'[M6] マクロ相関', m6res?`夜間FX ${(m6res.fxMove*100).toFixed(2)}%`:'');
+  add(m1,0.19,'[M1] ブートストラップMC','実分布再標本化');
+  add(m2,0.24,'[M2] パターン類似kNN', m2?`類似${m2.k}局面中${m2.nUp}件上昇`:'');
+  add(m3,0.08,'[M3] 自己相関AR(1)', m3?`ρ=${m3.rho.toFixed(2)} ${m3.regime}`:'');
+  add(m4,0.16,'[M4] テクニカル',`スコア${m4.score>=0?'+':''}${m4.score}`);
+  add(m5res,0.12,'[M5] ニュースKW',`P:${m5res.pos}/N:${m5res.neg}`);
+  add(m6res,0.09,'[M6] マクロ相関', m6res?`夜間FX ${(m6res.fxMove*100).toFixed(2)}%`:'');
+  add(m7,  0.12,'[M7] パターンスコア', m7?`S=${m7.score>=0?'+':''}${m7.score} (${m7.detail.length}件)`:'');
   const wsum=sum(ws), w=ws.map(v=>v/wsum);
   const pEns=sum(votes.map((v,i)=>v*w[i]));
   const spread=Math.max(...votes)-Math.min(...votes);
@@ -858,7 +891,7 @@ function ensemble(closeFull, steps, m5res, m6res){
   const verdict = pEns>=0.62?'強気 ↗↗':pEns>=0.53?'やや強気 ↗':
                   pEns>=0.45?'やや弱気 ↘':pEns<0.38?'弱気 ↘↘':'やや弱気 ↘';
   return {pEns, conf, confPct:(1-spread)*100, verdict, fan, sigma, steps,
-          detail, m4, votes};
+          detail, m4, m7, votes};
 }
 
 /* ---------- シグナル走査 (各バー時点・翌足) ---------- */
@@ -1496,10 +1529,17 @@ function drawIndOverlay(){
     // cFull上のカーソル位置を計算（d.cはcFullの末尾n本）
     const cFullCursorIdx = cFull.length - n + pitIdx;
     cFullForEns = cFull.slice(0, cFullCursorIdx + 1);
+    // PITモード: カーソル以前のcFullスライスで予測を再生成
     // m5/m6はPITでは再取得できないため既存値を流用（当時近似）
+    // M7用にOHLC全系列も同じcursorIdxでスライス
+    const oFull=chart.o, hFull=chart.h, lFull=chart.l;
+    const oForEns = oFull.slice(0, cFullCursorIdx + 1);
+    const hForEns = hFull.slice(0, cFullCursorIdx + 1);
+    const lForEns = lFull.slice(0, cFullCursorIdx + 1);
     ensUsed = ensemble(cFullForEns, state.ens ? state.ens.steps : 3,
                        state.ens ? state.ens.m5 : null,
-                       state.ens ? state.ens.m6 : null);
+                       state.ens ? state.ens.m6 : null,
+                       oForEns, hForEns, lForEns);
   } else {
     ensUsed = state.ens;
     cFullForEns = cFull;
@@ -1791,7 +1831,7 @@ async function analyze(code, silent){
     state.news=newsRaw;
     const m5=m5News(newsRaw.map(x=>x.title));
     const m6= state.tf==='1d' ? await m6Macro(symbol) : null;
-    state.ens=ensemble(cFull, 3, m5, m6);
+    state.ens=ensemble(cFull, 3, m5, m6, chart.o, chart.h, chart.l);
     state.ens.m5=m5; state.ens.m6=m6;
     state.patterns = state.cfg.pat==='1' ?
       detectPatterns(state.data.o,state.data.h,state.data.l,state.data.c):[];
@@ -1907,6 +1947,13 @@ function renderAll(quote){
     (ens.m6?`\n\n■ マクロ相関\n 日経平均 β=${ens.m6.betaN.toFixed(2)} 相関=${ens.m6.corrN.toFixed(2)}`+
       `\n ドル円   β=${ens.m6.betaF.toFixed(2)} 相関=${ens.m6.corrF.toFixed(2)} → ${ens.m6.fxType}`+
       `\n 夜間FX ${(ens.m6.fxMove*100).toFixed(2)}% → ドリフト ${(ens.m6.drift*100).toFixed(2)}%`:'')+
+    (ens.m7&&ens.m7.detail.length?
+      `\n\n■ パターンスコア (M7)\n スコア ${ens.m7.score>=0?'+':''}${ens.m7.score}  →  p7=${(ens.m7.pUp*100).toFixed(1)}%\n`+
+      ens.m7.detail.map(d=>
+        ` ${d.dBars}本前 [${d.grp}] ${d.name}  `+
+        `${d.dir>0?'↑強気':d.dir<0?'↓弱気':'→中立'}  `+
+        `grp×${d.wGrp.toFixed(2)} × time×${d.wTime.toFixed(3)} = ${d.contrib>=0?'+':''}${d.contrib}`
+      ).join('\n'):'')+
     `\n\n■ テクニカル根拠\n ${ens.m4.reasons.join('\n ')}`;
   state.lastReport =
     `総合上昇確率 ${(ens.pEns*100).toFixed(1)}%  [${ens.verdict}]\n`+
