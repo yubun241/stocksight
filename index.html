@@ -1709,10 +1709,9 @@ function drawIndOverlay(){
     // PITモード: カーソル以前のcFullスライスで予測を再生成
     // m5/m6はPITでは再取得できないため既存値を流用（当時近似）
     // M7用にOHLC全系列も同じcursorIdxでスライス
-    const oFull=chart.o, hFull=chart.h, lFull=chart.l;
-    const oForEns = oFull.slice(0, cFullCursorIdx + 1);
-    const hForEns = hFull.slice(0, cFullCursorIdx + 1);
-    const lForEns = lFull.slice(0, cFullCursorIdx + 1);
+    const oForEns = (d.oFull||[]).slice(0, cFullCursorIdx + 1);
+    const hForEns = (d.hFull||[]).slice(0, cFullCursorIdx + 1);
+    const lForEns = (d.lFull||[]).slice(0, cFullCursorIdx + 1);
     ensUsed = ensemble(cFullForEns, state.ens ? state.ens.steps : 3,
                        state.ens ? state.ens.m5 : null,
                        state.ens ? state.ens.m6 : null,
@@ -2004,7 +2003,8 @@ async function analyze(code, silent){
     const sl=a=>a.slice(-nDisp);
     state.symbol=symbol; LS.set('ss_sym',symbol);
     state.data={o:sl(chart.o),h:sl(chart.h),l:sl(chart.l),c:sl(chart.c),
-                ts:sl(chart.ts), cFull, name:quote.name};
+                ts:sl(chart.ts), cFull, oFull:chart.o, hFull:chart.h, lFull:chart.l,
+                name:quote.name};
     state.news=newsRaw;
     const m5=m5News(newsRaw.map(x=>x.title));
     const m6= state.tf==='1d' ? await m6Macro(symbol) : null;
