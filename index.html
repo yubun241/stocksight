@@ -701,11 +701,76 @@ function rsiArr(c,n=14){ const out=new Array(c.length).fill(50);
 function macdArr(c,f=12,s=26,g=9){ const ef=ema(c,f),es=ema(c,s);
   const line=ef.map((v,i)=>v-es[i]); const sig=ema(line,g);
   return {line,sig,hist:line.map((v,i)=>v-sig[i])}; }
-function ewmaVol(r,lam=0.94){ let v=r[0]*r[0];
-  for(let i=1;i<r.length;i++) v=lam*v+(1-lam)*r[i]*r[i];
-  return Math.sqrt(v); }
-function effVol(r){ const recent=r.slice(-20);
-  return VOL_CAL*Math.max(ewmaVol(r), recent.length>=20?std(recent):0); }
+function garchVol(r){
+  if(r.length < 40) return Math.sqrt(r.reduce((s,v)=>s+v*v,0)/r.length);
+  const T = r.length;
+  const varFull = r.reduce((s,v)=>s+v*v,0)/T;
+
+  // 初期値: 典型的な金融時系列の GARCH(1,1) パラメータ
+  let omega = varFull * 0.02;
+  let alpha = 0.08;
+  let beta  = 0.90;
+
+  function calcSigma2(omega, alpha, beta){
+    const s2 = new Float64Array(T);
+    s2[0] = varFull;
+    for(let t=1;t<T;t++)
+      s2[t] = Math.max(omega + alpha*r[t-1]*r[t-1] + beta*s2[t-1], 1e-12);
+    return s2;
+  }
+  function logLik(omega, alpha, beta){
+    if(omega<=0||alpha<0||beta<0||alpha+beta>=0.9999) return -Infinity;
+    const s2=calcSigma2(omega,alpha,beta);
+    let ll=0;
+    for(let t=1;t<T;t++) ll += -0.5*(Math.log(s2[t]) + r[t]*r[t]/s2[t]);
+    return isFinite(ll)?ll:-Infinity;
+  }
+
+  // 座標降下法（omega・alpha・beta を交互に1次元グリッド探索）
+  for(let iter=0;iter<60;iter++){
+    // omega
+    let bestLL=-Infinity, bestV=omega;
+    for(let k=0;k<=30;k++){
+      const v=varFull*0.001+(varFull*0.3-varFull*0.001)*k/30;
+      const ll=logLik(v,alpha,beta);
+      if(ll>bestLL){bestLL=ll;bestV=v;}
+    }
+    omega=bestV;
+    // alpha
+    bestLL=-Infinity; bestV=alpha;
+    for(let k=0;k<=30;k++){
+      const v=0.01+0.39*k/30;
+      if(v+beta>=0.9999) continue;
+      const ll=logLik(omega,v,beta);
+      if(ll>bestLL){bestLL=ll;bestV=v;}
+    }
+    alpha=bestV;
+    // beta
+    bestLL=-Infinity; bestV=beta;
+    const bHi=Math.min(0.98, 0.9998-alpha);
+    for(let k=0;k<=30;k++){
+      const v=0.50+(bHi-0.50)*k/30;
+      const ll=logLik(omega,alpha,v);
+      if(ll>bestLL){bestLL=ll;bestV=v;}
+    }
+    beta=bestV;
+  }
+
+  const s2=calcSigma2(omega,alpha,beta);
+  // 翌期予測: σ²_{T+1} = omega + alpha*r_T² + beta*σ²_T
+  const s2Next=Math.max(omega+alpha*r[T-1]*r[T-1]+beta*s2[T-1], 1e-12);
+  return {sigma:Math.sqrt(s2Next), omega,
+          alpha:+alpha.toFixed(4), beta:+beta.toFixed(4),
+          persistence:+(alpha+beta).toFixed(4)};
+}
+
+// 後方互換: effVol は garchVol の sigma を返すラッパー
+function effVol(r){
+  const g=garchVol(r);
+  return typeof g==='number'?g:g.sigma;
+}
+
+
 function logRet(c){ const r=new Array(c.length-1);
   for(let i=1;i<c.length;i++) r[i-1]=Math.log(c[i]/c[i-1]); return r; }
 
@@ -739,17 +804,127 @@ function m2Knn(r, steps, window=10, k=25){
   const nUp=fut.filter(v=>v>0).length;
   return {pUp:nUp/fut.length, nUp, k:fut.length};
 }
-function m3Ar1(r, steps){
-  if(r.length<30) return null;
-  const a=r.slice(0,-1), b=r.slice(1), ma=mean(a), mb=mean(b);
-  let cov=0,va=0,vb=0;
-  for(let i=0;i<a.length;i++){ cov+=(a[i]-ma)*(b[i]-mb); va+=(a[i]-ma)**2; vb+=(b[i]-mb)**2; }
-  const rho=cov/Math.sqrt(Math.max(va*vb,1e-18));
-  const sig=Math.max(std(r),1e-9);
-  let eCum=0; for(let i=1;i<=steps;i++) eCum+=r[r.length-1]*Math.pow(rho,i);
-  const regime = rho>0.05?'モメンタム':rho<-0.05?'平均回帰':'ランダム的';
-  return {pUp:normCdf(eCum/(sig*Math.sqrt(steps))), rho, regime};
+function m3Arma(r, steps){
+  if(r.length < 60) return null;
+  const T = r.length;
+  const mu = mean(r);
+  const rc = r.map(v => v - mu);   // 平均除去
+
+  /* --- CSS推定: ARMA(p,q) 残差二乗和を最小化 --- */
+  function cssEstimate(p, q){
+    if(p === 0 && q === 0){
+      // ホワイトノイズ: 残差 = rc そのまま
+      const sse = rc.reduce((s,v) => s + v*v, 0);
+      return {phi:[], theta:[], sse, resid:[...rc]};
+    }
+    const nParam = p + q;
+    const start = Math.max(p, q);
+    if(T - start < nParam + 10) return null;
+
+    // AR係数のYule-Walker初期値
+    let phi = new Array(p).fill(0);
+    let theta = new Array(q).fill(0);
+    if(p > 0){
+      // Yule-Walker for AR初期値
+      const R = new Array(p+1).fill(0);
+      for(let k=0;k<=p;k++) for(let t=k;t<T;t++) R[k] += rc[t]*rc[t-k];
+      for(let k=0;k<=p;k++) R[k] /= T;
+      // Levinson-Durbin (簡易: 1次のみ反復)
+      phi[0] = R[1]/Math.max(R[0],1e-18);
+      for(let i=1;i<p;i++) phi[i] = phi[0] * Math.pow(0.5, i);
+    }
+
+    // CSS残差計算
+    function calcResid(phi, theta){
+      const e = new Array(T).fill(0);
+      for(let t=0; t<T; t++){
+        let v = rc[t];
+        for(let i=0;i<p;i++) if(t-i-1>=0) v -= phi[i]*rc[t-i-1];
+        for(let j=0;j<q;j++) if(t-j-1>=0) v -= theta[j]*e[t-j-1];
+        e[t] = v;
+      }
+      return e;
+    }
+
+    // 勾配降下でCSS最小化（固定ステップ数）
+    const lr = 0.01, iters = 120;
+    for(let iter=0; iter<iters; iter++){
+      const e = calcResid(phi, theta);
+      const sse = e.slice(start).reduce((s,v)=>s+v*v, 0);
+      const eps = 1e-5;
+      // phi勾配
+      for(let i=0;i<p;i++){
+        phi[i] += eps;
+        const e2 = calcResid(phi, theta);
+        const sse2 = e2.slice(start).reduce((s,v)=>s+v*v, 0);
+        phi[i] -= eps;
+        const grad = (sse2 - sse) / eps;
+        phi[i] -= lr * grad;
+        phi[i] = Math.max(-0.99, Math.min(0.99, phi[i])); // 安定性クリップ
+      }
+      // theta勾配
+      for(let j=0;j<q;j++){
+        theta[j] += eps;
+        const e2 = calcResid(phi, theta);
+        const sse2 = e2.slice(start).reduce((s,v)=>s+v*v, 0);
+        theta[j] -= eps;
+        const grad = (sse2 - sse) / eps;
+        theta[j] -= lr * grad;
+        theta[j] = Math.max(-0.99, Math.min(0.99, theta[j]));
+      }
+    }
+    const resid = calcResid(phi, theta);
+    const sse = resid.slice(start).reduce((s,v)=>s+v*v, 0);
+    if(!isFinite(sse)) return null;
+    return {phi, theta, sse, resid};
+  }
+
+  /* --- AICグリッドサーチ (p,q) ∈ {0..3}² --- */
+  const PMAX = 3, QMAX = 3;
+  let bestAic = Infinity, best = null, bestP = 0, bestQ = 0;
+  for(let p=0; p<=PMAX; p++){
+    for(let q=0; q<=QMAX; q++){
+      const res = cssEstimate(p, q);
+      if(!res) continue;
+      const nParam = p + q + 1; // +1 for sigma²
+      const nEff = T - Math.max(p, q);
+      if(nEff <= nParam) continue;
+      const sigma2 = res.sse / nEff;
+      if(sigma2 <= 0) continue;
+      const aic = nEff * Math.log(sigma2) + 2 * nParam;
+      if(aic < bestAic){ bestAic=aic; best=res; bestP=p; bestQ=q; }
+    }
+  }
+  if(!best) return null;
+
+  /* --- 選定モデルで h ステップ先予測 --- */
+  const {phi, theta, resid} = best;
+  // 逐次予測（残差は既知値は実残差，将来は0）
+  const rExt = [...rc];
+  const eExt = [...resid];
+  for(let h=0; h<steps; h++){
+    let v = 0;
+    for(let i=0;i<bestP;i++) v += phi[i]*(rExt[rExt.length-1-i]||0);
+    for(let j=0;j<bestQ;j++) v += theta[j]*(eExt[eExt.length-1-j]||0);
+    rExt.push(v);
+    eExt.push(0); // 将来残差は期待値0
+  }
+  const forecast = rExt.slice(-steps);  // h ステップ予測収益率
+  const eCum = forecast.reduce((s,v)=>s+v, 0) + mu * steps;
+
+  const sig = Math.max(std(r), 1e-9);
+  const rho1 = bestP>0 ? best.phi[0] : 0; // AR(1)係数（レジーム判定用）
+  const regime = rho1>0.05?'モメンタム':rho1<-0.05?'平均回帰':'ランダム的';
+
+  return {
+    pUp: normCdf(eCum / (sig * Math.sqrt(steps))),
+    eCum, bestP, bestQ, bestAic: +bestAic.toFixed(2),
+    phi: best.phi.map(v=>+v.toFixed(4)),
+    theta: best.theta.map(v=>+v.toFixed(4)),
+    rho: rho1, regime
+  };
 }
+
 function m4Technical(c, bbn=20){
   let score=0; const reasons=[];
   const rs=rsiArr(c)[c.length-1];
@@ -848,7 +1023,7 @@ function m7Pattern(o, h, l, c){
 function ensemble(closeFull, steps, m5res, m6res, oFull, hFull, lFull){
   const r=logRet(closeFull), s0=closeFull[closeFull.length-1];
   const m1=m1Bootstrap(r,steps), m2=m2Knn(r,steps),
-        m3=m3Ar1(r,steps), m4=m4Technical(closeFull, state.cfg.bbn);
+        m3=m3Arma(r,steps), m4=m4Technical(closeFull, state.cfg.bbn);
   // M7: OHLC全系列が渡された場合のみ有効
   const m7 = (oFull && hFull && lFull)
     ? m7Pattern(oFull, hFull, lFull, closeFull)
@@ -858,7 +1033,7 @@ function ensemble(closeFull, steps, m5res, m6res, oFull, hFull, lFull){
     detail.push({label,p:m.pUp,info});} };
   add(m1,0.19,'[M1] ブートストラップMC','実分布再標本化');
   add(m2,0.24,'[M2] パターン類似kNN', m2?`類似${m2.k}局面中${m2.nUp}件上昇`:'');
-  add(m3,0.08,'[M3] 自己相関AR(1)', m3?`ρ=${m3.rho.toFixed(2)} ${m3.regime}`:'');
+  add(m3,0.08,'[M3] ARMA自動選定', m3?`ARMA(${m3.bestP},${m3.bestQ}) AIC=${m3.bestAic} ${m3.regime}`:'');
   add(m4,0.16,'[M4] テクニカル',`スコア${m4.score>=0?'+':''}${m4.score}`);
   add(m5res,0.12,'[M5] ニュースKW',`P:${m5res.pos}/N:${m5res.neg}`);
   add(m6res,0.09,'[M6] マクロ相関', m6res?`夜間FX ${(m6res.fxMove*100).toFixed(2)}%`:'');
@@ -869,7 +1044,9 @@ function ensemble(closeFull, steps, m5res, m6res, oFull, hFull, lFull){
   const conf= spread<0.15?'高':spread<0.30?'中':'低';
   // ファン生成 (較正済みドリフト注入)
   const pFan=0.5+DRIFT_SHRINK*(pEns-0.5);
-  const sigma=effVol(r), d=invNorm(pFan)*sigma/Math.sqrt(steps);
+  const garch=garchVol(r);
+  const sigma= typeof garch==='number'?garch:garch.sigma;
+  const d=invNorm(pFan)*sigma/Math.sqrt(steps);
   const samples = m1?m1.samples:Array.from({length:2500},()=>
     Array.from({length:steps},()=>sigma*(Math.random()*2-1)));
   let gm=0; for(const p of samples) for(const v of p) gm+=v;
@@ -890,14 +1067,14 @@ function ensemble(closeFull, steps, m5res, m6res, oFull, hFull, lFull){
   }
   const verdict = pEns>=0.62?'強気 ↗↗':pEns>=0.53?'やや強気 ↗':
                   pEns>=0.45?'やや弱気 ↘':pEns<0.38?'弱気 ↘↘':'やや弱気 ↘';
-  return {pEns, conf, confPct:(1-spread)*100, verdict, fan, sigma, steps,
+  return {pEns, conf, confPct:(1-spread)*100, verdict, fan, sigma, garch, steps,
           detail, m4, m7, votes};
 }
 
 /* ---------- シグナル走査 (各バー時点・翌足) ---------- */
 function signalProb(c, bbn){
   const r=logRet(c); if(r.length<60) return null;
-  const m1=m1Bootstrap(r,1,400), m2=m2Knn(r,1), m3=m3Ar1(r,1), m4=m4Technical(c,bbn);
+  const m1=m1Bootstrap(r,1,400), m2=m2Knn(r,1), m3=m3Arma(r,1), m4=m4Technical(c,bbn);
   const vs=[],ws=[];
   if(m1){vs.push(m1.pUp);ws.push(0.25);}
   if(m2){vs.push(m2.pUp);ws.push(0.30);}
@@ -1880,7 +2057,8 @@ function renderAll(quote){
   $('s-med').textContent=fmt(fan.med[last]);
   $('s-r68').textContent=fmt(fan.p16[last])+' 〜 '+fmt(fan.p84[last]);
   $('s-r90').textContent=fmt(fan.p5[last])+' 〜 '+fmt(fan.p95[last]);
-  $('s-vol').textContent=(ens.sigma*100).toFixed(2)+'% / 足';
+  $('s-vol').textContent=(ens.sigma*100).toFixed(2)+'% / 足'
+    +(ens.garch&&ens.garch.persistence?'  (α+β='+ens.garch.persistence+')':'');
   // chart
   $('chartmsg').style.display='none'; $('chart').style.display='block';
   drawChart();
@@ -1961,7 +2139,10 @@ function renderAll(quote){
     `予測中央値  ${fmt(fan.med[last])}\n`+
     `期待レンジ68%  ${fmt(fan.p16[last])} 〜 ${fmt(fan.p84[last])}\n`+
     `期待レンジ90%  ${fmt(fan.p5[last])} 〜 ${fmt(fan.p95[last])}\n`+
-    `実効ボラ σ=${(ens.sigma*100).toFixed(2)}%/足 (較正×${VOL_CAL})\n\n`+
+    `実効ボラ σ=${(ens.sigma*100).toFixed(2)}%/足`+
+    (ens.garch&&ens.garch.persistence?
+      ` [GARCH(1,1) α=${ens.garch.alpha.toFixed(3)} β=${ens.garch.beta.toFixed(3)} 持続性=${ens.garch.persistence}]`
+      :'')+`\n\n`+
     `※方向的中率は実測で偶然水準(約50%)。68/90%帯は較正済(実測71/91%)。\n`+
     `リスク計測器としてレンジでお読みください。`;
   refreshFavList(); 
