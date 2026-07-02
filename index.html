@@ -582,6 +582,13 @@ const TF = {
   '1mo':{label:'月足', interval:'1mo', range:'10y',bars:60,  fcLabel:'+3M',   horizon:'3ヶ月先'},
 };
 const VOL_CAL = 1.35, DRIFT_SHRINK = 0.5, SIG_STRONG = 0.05;
+/* 決定的乱数: 同一データ→同一シグナル/予測 (MCノイズによる判定フリップを防止) */
+function seedFromR(r){ let h=(2166136261 ^ r.length)>>>0;
+  for(let i=Math.max(0,r.length-8);i<r.length;i++)
+    h=Math.imul(h ^ ((r[i]*1e6)|0), 16777619)>>>0;
+  return h||88675123; }
+function makeRng(seed){ let s=seed>>>0||88675123;
+  return ()=>{ s^=s<<13; s>>>=0; s^=s>>>17; s^=s<<5; s>>>=0; return s/4294967296; }; }
 const LS = {
   get(k,d){ try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d} },
   set(k,v){ try{localStorage.setItem(k,JSON.stringify(v))}catch(e){} }
@@ -693,9 +700,15 @@ function bollinger(x,n){ if(x.length<n) return null;
     sd.push(Math.sqrt(sum(w.map(v=>(v-m)*(v-m)))/n)); }
   return {xi,mid,sd}; }
 function rsiArr(c,n=14){ const out=new Array(c.length).fill(50);
+  if(c.length<2) return out;
+  /* 標準Wilder: 最初のm本の平均でシードし、以後Wilder平滑化 (因果的=PIT同一日付不変) */
+  const m=Math.min(n, c.length-1);
   let au=0,ad=0;
-  for(let i=1;i<c.length;i++){ const d=c[i]-c[i-1],up=Math.max(d,0),dn=Math.max(-d,0);
-    if(i===1){au=up;ad=dn;} else {au=(au*(n-1)+up)/n; ad=(ad*(n-1)+dn)/n;}
+  for(let i=1;i<=m;i++){ const d=c[i]-c[i-1]; au+=Math.max(d,0); ad+=Math.max(-d,0); }
+  au/=m; ad/=m;
+  out[m]=100-100/(1+au/Math.max(ad,1e-9));
+  for(let i=m+1;i<c.length;i++){ const d=c[i]-c[i-1];
+    au=(au*(n-1)+Math.max(d,0))/n; ad=(ad*(n-1)+Math.max(-d,0))/n;
     out[i]=100-100/(1+au/Math.max(ad,1e-9)); }
   return out; }
 function macdArr(c,f=12,s=26,g=9){ const ef=ema(c,f),es=ema(c,s);
@@ -764,24 +777,40 @@ function garchVol(r){
           persistence:+(alpha+beta).toFixed(4)};
 }
 
-// 後方互換: effVol は garchVol の sigma を返すラッパー
+// 後方互換: effVol は garchVol の sigma を返すラッパー (メモ化付き)
+// ensemble内で garchVol と m1Bootstrap(→effVol) が同一系列に二重フィットするのを防ぐ
+const _garchCache=new Map();
+function garchVolMemo(r){
+  const key=r.length+':'+(r.length?(r[r.length-1]*1e9|0):0)+':'+(r.length>1?(r[0]*1e9|0):0);
+  if(_garchCache.has(key)) return _garchCache.get(key);
+  if(_garchCache.size>24) _garchCache.clear();
+  const v=garchVol(r);
+  _garchCache.set(key,v);
+  return v;
+}
 function effVol(r){
-  const g=garchVol(r);
+  const g=garchVolMemo(r);
   return typeof g==='number'?g:g.sigma;
 }
+/* シグナル走査用の軽量ボラ (EWMA)。バー毎のGARCHフルフィットを回避 */
+function ewmaVolLite(r,lam=0.94){ let v=r[0]*r[0];
+  for(let i=1;i<r.length;i++) v=lam*v+(1-lam)*r[i]*r[i];
+  return Math.sqrt(v); }
 
 
 function logRet(c){ const r=new Array(c.length-1);
   for(let i=1;i<c.length;i++) r[i-1]=Math.log(c[i]/c[i-1]); return r; }
 
 /* ---------- Mirage Ensemble+ (6モデル) ---------- */
-function m1Bootstrap(r, steps, nSims=2500){
+function m1Bootstrap(r, steps, nSims=2500, rng=null, sigOverride=null){
   if (r.length<40) return null;
-  const block=3, nblk=Math.ceil(steps/block), scale=effVol(r)/Math.max(std(r),1e-9), m=mean(r);
+  const rand = rng || makeRng(seedFromR(r));
+  const sig = sigOverride!=null ? sigOverride : effVol(r);
+  const block=3, nblk=Math.ceil(steps/block), scale=sig/Math.max(std(r),1e-9), m=mean(r);
   const cums=new Float64Array(nSims), samples=[];
   for(let s=0;s<nSims;s++){
     const path=new Float64Array(steps); let k=0;
-    for(let b=0;b<nblk;b++){ const st=(Math.random()*(r.length-block))|0;
+    for(let b=0;b<nblk;b++){ const st=(rand()*(r.length-block))|0;
       for(let j=0;j<block&&k<steps;j++,k++) path[k]=(r[st+j]-m)*scale+m; }
     let cs=0; for(let j=0;j<steps;j++) cs+=path[j];
     cums[s]=cs; samples.push(path);
@@ -790,7 +819,8 @@ function m1Bootstrap(r, steps, nSims=2500){
   return {pUp:up/nSims, samples};
 }
 function m2Knn(r, steps, window=10, k=25){
-  const nHist=r.length-window-steps; if(nHist<60) return null;
+  /* 候補窓+その後がターゲット窓(直近window本)に重ならない範囲のみ走査 (自己マッチ排除) */
+  const nHist=r.length-2*window-steps; if(nHist<60) return null;
   const tgt=r.slice(-window), tm=mean(tgt), ts=std(tgt)+1e-9;
   const tz=tgt.map(v=>(v-tm)/ts);
   const dists=[];
@@ -804,7 +834,7 @@ function m2Knn(r, steps, window=10, k=25){
   const nUp=fut.filter(v=>v>0).length;
   return {pUp:nUp/fut.length, nUp, k:fut.length};
 }
-function m3Arma(r, steps){
+function m3Arma(r, steps, pmax=3, qmax=3){
   if(r.length < 60) return null;
   const T = r.length;
   const mu = mean(r);
@@ -879,8 +909,8 @@ function m3Arma(r, steps){
     return {phi, theta, sse, resid};
   }
 
-  /* --- AICグリッドサーチ (p,q) ∈ {0..3}² --- */
-  const PMAX = 3, QMAX = 3;
+  /* --- AICグリッドサーチ (p,q) ∈ {0..pmax}×{0..qmax} --- */
+  const PMAX = pmax, QMAX = qmax;
   let bestAic = Infinity, best = null, bestP = 0, bestQ = 0;
   for(let p=0; p<=PMAX; p++){
     for(let q=0; q<=QMAX; q++){
@@ -934,6 +964,7 @@ function m4Technical(c, bbn=20){
   const {line,sig,hist}=macdArr(c); const n=c.length-1;
   if(line[n]>sig[n]&&hist[n]>hist[n-1]){score+=2;reasons.push('MACD GX継続・拡大');}
   else if(line[n]<sig[n]&&hist[n]<hist[n-1]){score-=2;reasons.push('MACD DX継続・縮小');}
+  else reasons.push('MACD 中立/転換途上');
   if(c.length>25){
     const s5=mean(c.slice(-5)), s25=mean(c.slice(-25));
     if(s5>s25){score+=1;reasons.push('SMA短期>長期 上昇トレンド');}
@@ -957,9 +988,11 @@ const NEG_W=['下方修正','減益','赤字','減配','不振','急落','売り
   'miss','fall','drop','loss','downgrade','cut','sell','plunge','lawsuit','recall'];
 function m5News(titles){
   let pos=0,neg=0;
+  /* 英単語は\b境界一致 (comMISSion/aGAINst等の部分一致誤検出を防止)、日本語は部分一致 */
+  const hit=(tl,w)=> /^[a-z]+$/.test(w) ? new RegExp('\\b'+w+'\\b').test(tl) : tl.includes(w);
   for(const t of titles){ const tl=t.toLowerCase();
-    for(const w of POS_W) if(tl.includes(w.toLowerCase())) pos++;
-    for(const w of NEG_W) if(tl.includes(w.toLowerCase())) neg++; }
+    for(const w of POS_W) if(hit(tl,w.toLowerCase())) pos++;
+    for(const w of NEG_W) if(hit(tl,w.toLowerCase())) neg++; }
   return {pUp:(pos+1)/(pos+neg+2), pos, neg};
 }
 async function m6Macro(symbol){
@@ -1022,7 +1055,8 @@ function m7Pattern(o, h, l, c){
 
 function ensemble(closeFull, steps, m5res, m6res, oFull, hFull, lFull){
   const r=logRet(closeFull), s0=closeFull[closeFull.length-1];
-  const m1=m1Bootstrap(r,steps), m2=m2Knn(r,steps),
+  const rng=makeRng(seedFromR(r));
+  const m1=m1Bootstrap(r,steps,2500,rng), m2=m2Knn(r,steps),
         m3=m3Arma(r,steps), m4=m4Technical(closeFull, state.cfg.bbn);
   // M7: OHLC全系列が渡された場合のみ有効
   const m7 = (oFull && hFull && lFull)
@@ -1044,11 +1078,11 @@ function ensemble(closeFull, steps, m5res, m6res, oFull, hFull, lFull){
   const conf= spread<0.15?'高':spread<0.30?'中':'低';
   // ファン生成 (較正済みドリフト注入)
   const pFan=0.5+DRIFT_SHRINK*(pEns-0.5);
-  const garch=garchVol(r);
+  const garch=garchVolMemo(r);
   const sigma= typeof garch==='number'?garch:garch.sigma;
   const d=invNorm(pFan)*sigma/Math.sqrt(steps);
   const samples = m1?m1.samples:Array.from({length:2500},()=>
-    Array.from({length:steps},()=>sigma*(Math.random()*2-1)));
+    Array.from({length:steps},()=>sigma*(rng()*2-1)));
   let gm=0; for(const p of samples) for(const v of p) gm+=v;
   gm/=samples.length*steps;
   const finals=[], paths=[];
@@ -1074,7 +1108,9 @@ function ensemble(closeFull, steps, m5res, m6res, oFull, hFull, lFull){
 /* ---------- シグナル走査 (各バー時点・翌足) ---------- */
 function signalProb(c, bbn){
   const r=logRet(c); if(r.length<60) return null;
-  const m1=m1Bootstrap(r,1,400), m2=m2Knn(r,1), m3=m3Arma(r,1), m4=m4Technical(c,bbn);
+  /* 走査用は軽量構成: EWMAボラ(GARCHフルフィット回避) + ARMA次数(1,1)上限 */
+  const m1=m1Bootstrap(r,1,400,null,ewmaVolLite(r)),
+        m2=m2Knn(r,1), m3=m3Arma(r,1,1,1), m4=m4Technical(c,bbn);
   const vs=[],ws=[];
   if(m1){vs.push(m1.pUp);ws.push(0.25);}
   if(m2){vs.push(m2.pUp);ws.push(0.30);}
@@ -1541,7 +1577,7 @@ function drawDetail(){
         ctx.stroke(); ctx.setLineDash([]);
         ctx.fillStyle='#5a6478'; ctx.font='8px Roboto Mono';
         ctx.fillText(String(v), 2, Y2(v)+3); };
-      hl(80,'rgba(239,68,68,.5)'); hl(50,'rgba(255,255,255,.12)'); hl(20,'rgba(59,130,246,.5)');
+      hl(70,'rgba(239,68,68,.5)'); hl(50,'rgba(255,255,255,.12)'); hl(30,'rgba(59,130,246,.5)');
       ctx.beginPath();
       rsiD.forEach((v,i)=>{ const x=X(i); i?ctx.lineTo(x,Y2(v)):ctx.moveTo(x,Y2(v)); });
       ctx.strokeStyle='#22d3ee'; ctx.lineWidth=1.4; ctx.stroke();
@@ -1645,6 +1681,8 @@ const indState = { sel:{candle:true, rsi:true}, openedBy:null };
 const pitState = {
   active: false,      // PITモードON/OFF
   cursorIdx: null,    // 表示データ配列(d.c)上のindex (0〜n-1)
+  pending: false,     // ドラッグ中(当時予測の再計算を保留し軽量描画)
+  cache: new Map(),   // key→当時ensemble結果 (スライダー往復で再計算しない)
 };
 function pitSetCursor(idx){
   pitState.cursorIdx = idx;
@@ -1653,6 +1691,7 @@ function pitSetCursor(idx){
 function pitClear(){
   pitState.active = false;
   pitState.cursorIdx = null;
+  pitState.pending = false;
 }
 
 function openIndOverlay(primary){
@@ -1706,22 +1745,36 @@ function drawIndOverlay(){
     // cFull上のカーソル位置を計算（d.cはcFullの末尾n本）
     const cFullCursorIdx = cFull.length - n + pitIdx;
     cFullForEns = cFull.slice(0, cFullCursorIdx + 1);
-    // PITモード: カーソル以前のcFullスライスで予測を再生成
-    // m5/m6はPITでは再取得できないため既存値を流用（当時近似）
-    // M7用にOHLC全系列も同じcursorIdxでスライス
-    const oForEns = (d.oFull||[]).slice(0, cFullCursorIdx + 1);
-    const hForEns = (d.hFull||[]).slice(0, cFullCursorIdx + 1);
-    const lForEns = (d.lFull||[]).slice(0, cFullCursorIdx + 1);
-    ensUsed = ensemble(cFullForEns, state.ens ? state.ens.steps : 3,
-                       state.ens ? state.ens.m5 : null,
-                       state.ens ? state.ens.m6 : null,
-                       oForEns, hForEns, lForEns);
+    const key = state.symbol+'|'+state.tf+'|'+cFullCursorIdx+'|'+cFull.length;
+    if(pitState.cache.has(key)){
+      ensUsed = pitState.cache.get(key);           // 計算済み→即描画
+    } else if(pitState.pending){
+      ensUsed = null;                               // ドラッグ中→軽量描画(カーソル移動のみ)
+    } else {
+      // m5/m6はPITでは再取得できないため既存値を流用（当時近似）
+      // M7用にOHLC全系列も同じcursorIdxでスライス
+      const oForEns = (d.oFull||[]).slice(0, cFullCursorIdx + 1);
+      const hForEns = (d.hFull||[]).slice(0, cFullCursorIdx + 1);
+      const lForEns = (d.lFull||[]).slice(0, cFullCursorIdx + 1);
+      try{
+        ensUsed = ensemble(cFullForEns, state.ens ? state.ens.steps : 3,
+                           state.ens ? state.ens.m5 : null,
+                           state.ens ? state.ens.m6 : null,
+                           oForEns.length?oForEns:null,
+                           hForEns.length?hForEns:null,
+                           lForEns.length?lForEns:null);
+      }catch(e){ ensUsed=null; }
+      if(pitState.cache.size>40) pitState.cache.clear();
+      pitState.cache.set(key, ensUsed);
+    }
   } else {
     ensUsed = state.ens;
     cFullForEns = cFull;
   }
 
   const steps= ensUsed ? ensUsed.steps : 0;
+  // レイアウト(横軸スロット数)はPIT計算待ちでも不変にし、ドラッグ中の横揺れを防ぐ
+  const layoutSteps = steps || (state.ens ? state.ens.steps : 0);
   // 予測価格パス(中央値)を連結し、指標を予測区間まで延長計算
   const medPath= ensUsed ? ensUsed.fan.med : [];
   const cExt= ensUsed ? cFullForEns.concat(medPath) : cFullForEns;
@@ -1729,8 +1782,8 @@ function drawIndOverlay(){
   // 予測部の指標（カーソル/実測終端からの延長）。cExtの末尾steps本。
   const rsiExtAll=rsiArr(cExt);
   const mdE=macdArr(cExt);
-  const rsiFc = rsiExtAll.slice(-steps);
-  const macdLfc=mdE.line.slice(-steps), macdSfc=mdE.sig.slice(-steps), macdHfc=mdE.hist.slice(-steps);
+  const rsiFc = steps? rsiExtAll.slice(-steps):[];
+  const macdLfc= steps? mdE.line.slice(-steps):[], macdSfc= steps? mdE.sig.slice(-steps):[], macdHfc= steps? mdE.hist.slice(-steps):[];
 
   // 絶対index→表示index変換ヘルパー: 任意の全長系列をcFull基準のn本に揃える
   // arrFull は cFull と同じ長さの系列、arrPit は cFullForEns と同じ長さの系列。
@@ -1788,7 +1841,7 @@ function drawIndOverlay(){
   const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
   const padL=46, padR=14;
   const plotW=W-padL-padR;
-  const xTot=n+steps+(steps?1:0);   // 予測ぶんを横軸に確保
+  const xTot=n+layoutSteps+(layoutSteps?1:0);   // 予測ぶんを横軸に確保
   const X=i=>padL+(i+0.5)*plotW/xTot;
   const fcOn= steps>0 && ensUsed;
 
@@ -1879,19 +1932,19 @@ function drawIndOverlay(){
       const top=Yp(Math.max(o[i],c[i])), bot=Yp(Math.min(o[i],c[i]));
       ctx.fillStyle=col; ctx.fillRect(x-cw/2, top, cw, Math.max(bot-top,1)); }
   }
-  // 価格予測ファン (帯 + 中央値実線)
-  if(fcOn){
+  // 価格予測ファン (帯 + 中央値実線) — PIT時は後段でオレンジ描画するためスキップ
+  if(fcOn && !isPit){
     const fan=ensUsed.fan;
-    const bx= isPit ? X(pitIdx) : X(n-1);
-    const by= isPit ? Yp(c[pitIdx]) : Yp(c[n-1]);
+    const bx= X(n-1);
+    const by= Yp(c[n-1]);
     const poly=(upArr,loArr,al)=>{ ctx.beginPath(); ctx.moveTo(bx,by);
-      upArr.forEach((v,j)=>ctx.lineTo(X(isPit?pitIdx+1+j:n+j),Yp(v)));
-      for(let j=loArr.length-1;j>=0;j--) ctx.lineTo(X(isPit?pitIdx+1+j:n+j),Yp(loArr[j]));
+      upArr.forEach((v,j)=>ctx.lineTo(X(n+j),Yp(v)));
+      for(let j=loArr.length-1;j>=0;j--) ctx.lineTo(X(n+j),Yp(loArr[j]));
       ctx.lineTo(bx,by); ctx.closePath();
       ctx.fillStyle='#22d3ee'; ctx.globalAlpha=al; ctx.fill(); ctx.globalAlpha=1; };
     poly(fan.p95,fan.p5,.10); poly(fan.p84,fan.p16,.20);
     ctx.beginPath(); ctx.moveTo(bx,by);
-    fan.med.forEach((v,j)=>ctx.lineTo(X(isPit?pitIdx+1+j:n+j),Yp(v)));
+    fan.med.forEach((v,j)=>ctx.lineTo(X(n+j),Yp(v)));
     ctx.strokeStyle='#22d3ee'; ctx.lineWidth=2; ctx.stroke();
   }
   ctx.fillStyle='#8b95a7'; ctx.font='10px Roboto Mono';
@@ -1903,19 +1956,19 @@ function drawIndOverlay(){
     const Yr=v=>rp.top+rp.h*(1-v/100);
     ctx.strokeStyle='rgba(255,255,255,.06)';
     ctx.strokeRect(padL,rp.top,plotW,rp.h);
-    [[80,'rgba(239,68,68,.5)'],[50,'rgba(255,255,255,.14)'],[20,'rgba(59,130,246,.5)']]
+    [[70,'rgba(239,68,68,.5)'],[50,'rgba(255,255,255,.14)'],[30,'rgba(59,130,246,.5)']]
       .forEach(([v,col])=>{ ctx.setLineDash([3,3]); ctx.strokeStyle=col;
         ctx.beginPath(); ctx.moveTo(padL,Yr(v)); ctx.lineTo(W-padR,Yr(v)); ctx.stroke();
         ctx.setLineDash([]); ctx.fillStyle=col; ctx.fillText(String(v), 2, Yr(v)+3); });
     ctx.strokeStyle='#22d3ee'; ctx.lineWidth=1.4; ctx.beginPath();
     rsiFull.forEach((v,i)=>{ const x=X(i),y=Yr(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
     ctx.stroke();
-    // RSI予測延長 (カーソル終端/実測終端から続けて・同色・淡)
-    if(fcOn && rsiFc.length){
-      const sx= isPit?pitIdx:n-1;
+    // RSI予測延長 (実測終端から続けて・同色・淡) — PIT時は後段でオレンジ描画
+    if(fcOn && !isPit && rsiFc.length){
+      const sx= n-1;
       ctx.beginPath();
       ctx.moveTo(X(sx), Yr(rsiFull[sx]));
-      rsiFc.forEach((v,j)=>ctx.lineTo(X(isPit?pitIdx+1+j:n+j), Yr(v)));
+      rsiFc.forEach((v,j)=>ctx.lineTo(X(n+j), Yr(v)));
       ctx.strokeStyle='#22d3ee'; ctx.globalAlpha=.55; ctx.lineWidth=1.6;
       ctx.stroke(); ctx.globalAlpha=1;
     }
@@ -1935,19 +1988,19 @@ function drawIndOverlay(){
     const bw=Math.max(1,plotW/xTot*0.5);
     macdH.forEach((v,i)=>{ ctx.fillStyle= v>=0?'rgba(34,197,94,.5)':'rgba(239,68,68,.5)';
       const y0=Ym(0), y1=Ym(v); ctx.fillRect(X(i)-bw/2, Math.min(y0,y1), bw, Math.abs(y1-y0)); });
-    // ヒストグラム (予測・淡色)
-    if(fcOn) macdHfc.forEach((v,j)=>{ ctx.fillStyle= v>=0?'rgba(34,197,94,.28)':'rgba(239,68,68,.28)';
-      const y0=Ym(0), y1=Ym(v); ctx.fillRect(X(isPit?pitIdx+1+j:n+j)-bw/2, Math.min(y0,y1), bw, Math.abs(y1-y0)); });
+    // ヒストグラム (予測・淡色) — PIT時は後段でオレンジ描画
+    if(fcOn && !isPit) macdHfc.forEach((v,j)=>{ ctx.fillStyle= v>=0?'rgba(34,197,94,.28)':'rgba(239,68,68,.28)';
+      const y0=Ym(0), y1=Ym(v); ctx.fillRect(X(n+j)-bw/2, Math.min(y0,y1), bw, Math.abs(y1-y0)); });
     // MACD線/シグナル線 (実測)
     const drawL=(a,col)=>{ ctx.strokeStyle=col; ctx.lineWidth=1.3; ctx.beginPath();
       a.forEach((v,i)=>{ const x=X(i),y=Ym(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); };
     drawL(macdS,'#a78bfa'); drawL(macdL,'#ffd54f');
-    // 予測延長 (カーソル/実測終端から続けて・同色・淡)
-    if(fcOn){
-      const sx= isPit?pitIdx:n-1;
+    // 予測延長 (実測終端から続けて・同色・淡) — PIT時は後段でオレンジ描画
+    if(fcOn && !isPit){
+      const sx= n-1;
       const ext=(base,fc,col)=>{ ctx.beginPath();
         ctx.moveTo(X(sx), Ym(base[sx]));
-        fc.forEach((v,j)=>ctx.lineTo(X(isPit?pitIdx+1+j:n+j), Ym(v)));
+        fc.forEach((v,j)=>ctx.lineTo(X(n+j), Ym(v)));
         ctx.strokeStyle=col; ctx.globalAlpha=.5; ctx.lineWidth=1.5; ctx.stroke(); ctx.globalAlpha=1; };
       ext(macdS, macdSfc, '#a78bfa'); ext(macdL, macdLfc, '#ffd54f');
     }
@@ -1966,6 +2019,79 @@ function drawIndOverlay(){
     ctx.fillText('MACD', padL+4, mp.top+13);
   }
 
+  /* ===== PIT重畳描画 =====
+     数学的性質: 同一日付の指標値は基準点に依らず不変
+     (BB=各点が自身の直近n本 / RSI・MACD=因果的累積)。
+     → 左側(カーソル以前)の波形が動かないのは正しい挙動。
+     視覚化はゴースト方式: カーソルより右=「当時見えなかった未来」を暗幕で減光し、
+     当時の予測(ファン+RSI/MACD延長)をオレンジで重畳して実際と対比する。 */
+  if(isPit){
+    const slotW=plotW/xTot, xb=X(pitIdx)+slotW/2;
+    // 未来側を全ペイン一括で減光
+    ctx.fillStyle='rgba(10,14,22,.60)';
+    ctx.fillRect(xb, padT, Math.max(0, W-padR-xb), H-padB-padT);
+    // オレンジ縦線+ラベルを再描画(暗幕の上)
+    ctx.setLineDash([4,3]); ctx.strokeStyle='rgba(255,180,0,.9)'; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(X(pitIdx),padT); ctx.lineTo(X(pitIdx),H-padB); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineWidth=1;
+    if(d.ts && d.ts[pitIdx]){
+      const dt=new Date((d.ts[pitIdx]+32400)*1000);
+      ctx.fillStyle='rgba(255,180,0,.95)'; ctx.font='bold 9px Roboto Mono';
+      ctx.fillText('PIT:'+(dt.getUTCMonth()+1)+'/'+dt.getUTCDate(), X(pitIdx)+4, padT+10);
+    }
+    const clipPane=(top,hh,fn)=>{ ctx.save(); ctx.beginPath();
+      ctx.rect(padL,top,plotW,hh); ctx.clip(); fn(); ctx.restore(); };
+    if(fcOn){
+      const fan=ensUsed.fan, st=fan.med.length;
+      // --- 当時の予測ファン(オレンジ)。予測1本目=実際の翌足と同じX位置で直接対比 ---
+      const bx=X(pitIdx), by=Yp(c[pitIdx]);
+      clipPane(pr.top, pr.h, ()=>{
+        const poly=(u,lo,al)=>{ ctx.beginPath(); ctx.moveTo(bx,by);
+          u.forEach((v,j)=>ctx.lineTo(X(pitIdx+1+j),Yp(v)));
+          for(let j=lo.length-1;j>=0;j--) ctx.lineTo(X(pitIdx+1+j),Yp(lo[j]));
+          ctx.closePath(); ctx.fillStyle='#f59e0b'; ctx.globalAlpha=al;
+          ctx.fill(); ctx.globalAlpha=1; };
+        poly(fan.p95,fan.p5,.10); poly(fan.p84,fan.p16,.16);
+        ctx.beginPath(); ctx.moveTo(bx,by);
+        fan.med.forEach((v,j)=>ctx.lineTo(X(pitIdx+1+j),Yp(v)));
+        ctx.strokeStyle='#f59e0b'; ctx.lineWidth=2; ctx.stroke();
+      });
+      // --- 当時のRSI延長(オレンジ) ---
+      if(sel.rsi && paneRect.rsi && rsiFc.length){
+        const rp2=paneRect.rsi, Yr2=v=>rp2.top+rp2.h*(1-v/100);
+        clipPane(rp2.top, rp2.h, ()=>{
+          ctx.beginPath(); ctx.moveTo(X(pitIdx), Yr2(rsiFull[pitIdx]));
+          rsiFc.forEach((v,j)=>ctx.lineTo(X(pitIdx+1+j), Yr2(v)));
+          ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.6; ctx.stroke();
+        });
+      }
+      // --- 当時のMACD延長(オレンジ: MACD線=実線 / シグナル線=点線) ---
+      if(sel.macd && paneRect.macd && macdLfc.length){
+        const mp2=paneRect.macd;
+        const allM2=macdL.concat(macdS,macdH,macdLfc,macdSfc,macdHfc);
+        const mn2=Math.min(...allM2), mx2=Math.max(...allM2), rg2=Math.max(mx2-mn2,1e-9);
+        const Ym2=v=>mp2.top+mp2.h*(1-(v-mn2)/rg2);
+        clipPane(mp2.top, mp2.h, ()=>{
+          const bw2=Math.max(1,plotW/xTot*0.5);
+          macdHfc.forEach((v,j)=>{ ctx.fillStyle='rgba(245,158,11,.30)';
+            const y0=Ym2(0), y1=Ym2(v);
+            ctx.fillRect(X(pitIdx+1+j)-bw2/2, Math.min(y0,y1), bw2, Math.abs(y1-y0)); });
+          const ext=(baseV,fc,dash)=>{ ctx.beginPath();
+            ctx.moveTo(X(pitIdx), Ym2(baseV));
+            fc.forEach((v,j)=>ctx.lineTo(X(pitIdx+1+j), Ym2(v)));
+            ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.5;
+            if(dash) ctx.setLineDash([3,2]);
+            ctx.stroke(); ctx.setLineDash([]); };
+          ext(macdL[pitIdx], macdLfc, false);
+          ext(macdS[pitIdx], macdSfc, true);
+        });
+      }
+    } else if(pitState.pending){
+      ctx.fillStyle='rgba(255,180,0,.8)'; ctx.font='bold 10px Noto Sans JP';
+      ctx.fillText('当時予測を計算中…', X(pitIdx)+6, padT+24);
+    }
+  }
+
   // X軸ラベル (最下ペイン下)
   ctx.fillStyle='#8b95a7'; ctx.font='9px Roboto Mono';
   for(let i=0;i<n;i+=stepT){
@@ -1975,15 +2101,36 @@ function drawIndOverlay(){
       : (dt.getUTCMonth()+1)+'/'+dt.getUTCDate();
     ctx.fillText(lab, X(i)-12, H-7);
   }
-  if(fcOn){ ctx.fillStyle='#22d3ee';
+  if(fcOn && !isPit){ ctx.fillStyle='#22d3ee';
     ctx.fillText(tf.fcLabel, X(n+steps-1)-12, H-7); }
-  // 凡例ノート
-  $('ind-note').textContent= isPit
-    ? 'PIT再現モード: オレンジ縦線の時点を「今」として予測エンジンを再実行。左側は当時の目線で計算。右側（縦線以降）は実際の値動き。段差＝当時の認識のズレ。'
-    : 'チップで指標をON/OFF。シアンの縦点線より右は予測区間です。'
+  // 凡例ノート (PIT時は当時判定+答え合わせ)
+  if(isPit){
+    let msg='PIT再現: オレンジ縦線を「今」として当時の予測(橙ファン/橙延長線)を再計算。'
+      +'縦線より右の減光部=当時見えなかった実際の値動き。'
+      +'BB・RSI・MACDの実測波形は同一日付なら不変(数学的性質)のため左側は動きません。';
+    if(fcOn && ensUsed){
+      msg='【当時の判定】'+ensUsed.verdict+'  P↑'+(ensUsed.pEns*100).toFixed(0)+'%';
+      const st3=ensUsed.fan.med.length, tgt=pitIdx+st3;
+      if(tgt<=n-1){
+        const act=c[tgt];
+        const hit=(act>=c[pitIdx])===(ensUsed.pEns>=0.5);
+        const in68= act>=ensUsed.fan.p16[st3-1] && act<=ensUsed.fan.p84[st3-1];
+        const in90= act>=ensUsed.fan.p5[st3-1] && act<=ensUsed.fan.p95[st3-1];
+        msg+='  →【実際('+st3+'足後)】'+fmt(act)
+          +'  方向'+(hit?'的中◯':'外れ✕')
+          +' / 68%帯'+(in68?'内◯':'外')+' / 90%帯'+(in90?'内◯':'外✕');
+      } else msg+='  (答え合わせ対象は表示範囲の右外)';
+      msg+='  ※M5/M6は現在値の近似流用';
+    } else if(pitState.pending){
+      msg='当時予測を計算中… (指を離すと表示されます)';
+    }
+    $('ind-note').textContent=msg;
+  } else {
+    $('ind-note').textContent='チップで指標をON/OFF。シアンの縦点線より右は予測区間です。'
       +'価格はファン(中央値=実線+68/90%帯)、RSI・MACDは予測価格パスから延長した推定値を'
-      +'同色の淡線で表示。全ペインが時間軸を共有するので、'
-      +'予測上のGX/DX・RSI反転のタイミングを縦位置で照合できます。';
+      +'同色の淡線で表示。PITスライダーを左へ動かすと過去の任意時点に巻き戻し、'
+      +'当時の予測と実際の値動きを答え合わせできます。';
+  }
 }
 
 /* ---------- メイン解析フロー ---------- */
@@ -2005,6 +2152,7 @@ async function analyze(code, silent){
     state.data={o:sl(chart.o),h:sl(chart.h),l:sl(chart.l),c:sl(chart.c),
                 ts:sl(chart.ts), cFull, oFull:chart.o, hFull:chart.h, lFull:chart.l,
                 name:quote.name};
+    pitState.cache.clear(); pitClear();
     state.news=newsRaw;
     const m5=m5News(newsRaw.map(x=>x.title));
     const m6= state.tf==='1d' ? await m6Macro(symbol) : null;
@@ -2080,8 +2228,9 @@ function renderAll(quote){
   mb.className='badge '+(m4.macdUp&&m4.macdGrow?'b-bull':!m4.macdUp&&!m4.macdGrow?'b-bear':'b-neu');
   const dev=m4.bbDev;
   $('m-bb').textContent= dev==null?'--':(dev>=0?'+':'')+dev.toFixed(1)+'σ';
-  const bbsp=bollinger(c.slice(-60), Math.min(state.cfg.bbn, 20));
-  drawSpark('c-bb', bbsp? c.slice(-60).slice(-bbsp.mid.length).map((v,i)=>(v-bbsp.mid[i])/Math.max(bbsp.sd[i],1e-9)):[0,0],'#a78bfa',0);
+  const bbn2=state.cfg.bbn, bwin=c.slice(-(60+bbn2-1));
+  const bbsp=bollinger(bwin, bbn2);
+  drawSpark('c-bb', bbsp? bbsp.mid.map((m2,i)=>(bwin[i+bbn2-1]-m2)/Math.max(bbsp.sd[i],1e-9)).slice(-60):[0,0],'#a78bfa',0);
   const bbb=$('b-bb');
   bbb.textContent= dev==null?'--':dev<=-2?'安値圏':dev>=2?'高値圏':dev<0?'やや安値':'やや高値';
   bbb.className='badge '+(dev<=-2?'b-blue':dev>=2?'b-bear':'b-neu');
@@ -2501,6 +2650,7 @@ function init(){
   document.querySelectorAll('.mini[data-ind]').forEach(m=>m.onclick=()=>openIndOverlay(m.dataset.ind));
   $('ind-close').onclick=()=>{ pitClear(); $('indmodal').classList.remove('open'); };
   // PIT スライダー
+  let pitTmr=null;
   $('pit-slider').addEventListener('input', e=>{
     if(!state.data) return;
     const n=state.data.c.length;
@@ -2509,14 +2659,23 @@ function init(){
       // 右端 = PITモード解除（通常表示）
       pitClear();
       $('pit-date').textContent='--';
-    } else {
-      pitSetCursor(idx);
-      if(state.data.ts && state.data.ts[idx]){
-        const dt=new Date((state.data.ts[idx]+32400)*1000);
-        $('pit-date').textContent=(dt.getUTCMonth()+1)+'/'+(dt.getUTCDate());
-      }
+      clearTimeout(pitTmr);
+      drawIndOverlay();
+      return;
     }
+    pitSetCursor(idx);
+    if(state.data.ts && state.data.ts[idx]){
+      const dt=new Date((state.data.ts[idx]+32400)*1000);
+      $('pit-date').textContent=(dt.getUTCMonth()+1)+'/'+(dt.getUTCDate());
+    }
+    // ドラッグ中は軽量描画(カーソル+減光のみ)。指が止まってから当時予測を計算
+    pitState.pending=true;
     drawIndOverlay();
+    clearTimeout(pitTmr);
+    pitTmr=setTimeout(()=>{
+      pitState.pending=false;
+      if(pitState.active) drawIndOverlay();
+    },160);
   });
   $('pit-clear').onclick=()=>{
     if(!state.data) return;
