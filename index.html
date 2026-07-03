@@ -1784,6 +1784,16 @@ function drawIndOverlay(){
   const mdE=macdArr(cExt);
   const rsiFc = steps? rsiExtAll.slice(-steps):[];
   const macdLfc= steps? mdE.line.slice(-steps):[], macdSfc= steps? mdE.sig.slice(-steps):[], macdHfc= steps? mdE.hist.slice(-steps):[];
+  // BB予測延長: 予測中央値パスを窓に取り込んだ場合のバンド推移 (分散傾向の可視化)
+  let bbFc=[];
+  if(steps){
+    const bbE=bollinger(cExt, state.cfg.bbn);
+    if(bbE){
+      const al=new Array(cExt.length).fill(null);
+      for(let k2=0;k2<bbE.xi.length;k2++) al[bbE.xi[k2]]={mid:bbE.mid[k2], sd:bbE.sd[k2]};
+      bbFc=al.slice(-steps);
+    }
+  }
 
   // 絶対index→表示index変換ヘルパー: 任意の全長系列をcFull基準のn本に揃える
   // arrFull は cFull と同じ長さの系列、arrPit は cFullForEns と同じ長さの系列。
@@ -1883,6 +1893,7 @@ function drawIndOverlay(){
   let yMin=Math.min(...l), yMax=Math.max(...h);
   if(sel.bb){
     bbDisp.forEach(b=>{ if(b){ yMin=Math.min(yMin, b.mid-2*b.sd); yMax=Math.max(yMax, b.mid+2*b.sd); }});
+    bbFc.forEach(b=>{ if(b){ yMin=Math.min(yMin, b.mid-2*b.sd); yMax=Math.max(yMax, b.mid+2*b.sd); }});
   }
   if(fcOn){ yMin=Math.min(yMin,...ensUsed.fan.p5); yMax=Math.max(yMax,...ensUsed.fan.p95); }
   const pad=(yMax-yMin)*0.05; yMin-=pad; yMax+=pad;
@@ -1913,6 +1924,18 @@ function drawIndOverlay(){
       drawBand(b=>b.mid-k*b.sd, col, .7);
     });
     drawBand(b=>b.mid, '#cbd5e1', 1, [2,3]);
+    // BB予測延長 (同色・淡): 予測パスでバンドがどう推移するか=分散傾向
+    if(fcOn && !isPit && bbFc.length && bbDisp[n-1]){
+      const b0=bbDisp[n-1];
+      const seg=(f,col,al,dash)=>{ ctx.beginPath(); ctx.moveTo(X(n-1), Yp(f(b0)));
+        bbFc.forEach((b,j)=>{ if(b) ctx.lineTo(X(n+j), Yp(f(b))); });
+        ctx.strokeStyle=col; ctx.globalAlpha=al; ctx.lineWidth=1;
+        if(dash) ctx.setLineDash(dash);
+        ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; };
+      seg(b=>b.mid+2*b.sd,'#f59e0b',.5); seg(b=>b.mid-2*b.sd,'#f59e0b',.5);
+      seg(b=>b.mid+  b.sd,'#22c55e',.5); seg(b=>b.mid-  b.sd,'#22c55e',.5);
+      seg(b=>b.mid,'#cbd5e1',.6,[2,3]);
+    }
   }
   // SMA
   if(sel.sma){
@@ -2056,16 +2079,30 @@ function drawIndOverlay(){
         fan.med.forEach((v,j)=>ctx.lineTo(X(pitIdx+1+j),Yp(v)));
         ctx.strokeStyle='#f59e0b'; ctx.lineWidth=2; ctx.stroke();
       });
-      // --- 当時のRSI延長(オレンジ) ---
+      // --- 当時のBB延長 (同色): 当時予測パスでバンドがどう推移するか=分散傾向 ---
+      if(sel.bb && bbFc.length && bbDisp[pitIdx]){
+        const b0=bbDisp[pitIdx];
+        clipPane(pr.top, pr.h, ()=>{
+          const seg=(f,col,dash)=>{ ctx.beginPath(); ctx.moveTo(X(pitIdx), Yp(f(b0)));
+            bbFc.forEach((b,j)=>{ if(b) ctx.lineTo(X(pitIdx+1+j), Yp(f(b))); });
+            ctx.strokeStyle=col; ctx.globalAlpha=.85; ctx.lineWidth=1.1;
+            if(dash) ctx.setLineDash(dash);
+            ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; };
+          seg(b=>b.mid+2*b.sd,'#f59e0b'); seg(b=>b.mid-2*b.sd,'#f59e0b');
+          seg(b=>b.mid+  b.sd,'#22c55e'); seg(b=>b.mid-  b.sd,'#22c55e');
+          seg(b=>b.mid,'#cbd5e1',[2,3]);
+        });
+      }
+      // --- 当時のRSI延長 (実測線と同色) ---
       if(sel.rsi && paneRect.rsi && rsiFc.length){
         const rp2=paneRect.rsi, Yr2=v=>rp2.top+rp2.h*(1-v/100);
         clipPane(rp2.top, rp2.h, ()=>{
           ctx.beginPath(); ctx.moveTo(X(pitIdx), Yr2(rsiFull[pitIdx]));
           rsiFc.forEach((v,j)=>ctx.lineTo(X(pitIdx+1+j), Yr2(v)));
-          ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.6; ctx.stroke();
+          ctx.strokeStyle='#22d3ee'; ctx.lineWidth=1.6; ctx.stroke();
         });
       }
-      // --- 当時のMACD延長(オレンジ: MACD線=実線 / シグナル線=点線) ---
+      // --- 当時のMACD延長 (実測線と同色: MACD線=黄 / シグナル線=紫、共に実線) ---
       if(sel.macd && paneRect.macd && macdLfc.length){
         const mp2=paneRect.macd;
         const allM2=macdL.concat(macdS,macdH,macdLfc,macdSfc,macdHfc);
@@ -2073,17 +2110,15 @@ function drawIndOverlay(){
         const Ym2=v=>mp2.top+mp2.h*(1-(v-mn2)/rg2);
         clipPane(mp2.top, mp2.h, ()=>{
           const bw2=Math.max(1,plotW/xTot*0.5);
-          macdHfc.forEach((v,j)=>{ ctx.fillStyle='rgba(245,158,11,.30)';
+          macdHfc.forEach((v,j)=>{ ctx.fillStyle= v>=0?'rgba(34,197,94,.55)':'rgba(239,68,68,.55)';
             const y0=Ym2(0), y1=Ym2(v);
             ctx.fillRect(X(pitIdx+1+j)-bw2/2, Math.min(y0,y1), bw2, Math.abs(y1-y0)); });
-          const ext=(baseV,fc,dash)=>{ ctx.beginPath();
+          const ext=(baseV,fc,col)=>{ ctx.beginPath();
             ctx.moveTo(X(pitIdx), Ym2(baseV));
             fc.forEach((v,j)=>ctx.lineTo(X(pitIdx+1+j), Ym2(v)));
-            ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.5;
-            if(dash) ctx.setLineDash([3,2]);
-            ctx.stroke(); ctx.setLineDash([]); };
-          ext(macdL[pitIdx], macdLfc, false);
-          ext(macdS[pitIdx], macdSfc, true);
+            ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.stroke(); };
+          ext(macdS[pitIdx], macdSfc, '#a78bfa');
+          ext(macdL[pitIdx], macdLfc, '#ffd54f');
         });
       }
     } else if(pitState.pending){
@@ -2105,9 +2140,9 @@ function drawIndOverlay(){
     ctx.fillText(tf.fcLabel, X(n+steps-1)-12, H-7); }
   // 凡例ノート (PIT時は当時判定+答え合わせ)
   if(isPit){
-    let msg='PIT再現: オレンジ縦線を「今」として当時の予測(橙ファン/橙延長線)を再計算。'
-      +'縦線より右の減光部=当時見えなかった実際の値動き。'
-      +'BB・RSI・MACDの実測波形は同一日付なら不変(数学的性質)のため左側は動きません。';
+    let msg='PIT再現: オレンジ縦線を「今」として当時の予測を再計算。'
+      +'ファン=橙、BB/RSI/MACDの当時延長線は実測と同色(減光部の上に明るく表示)。'
+      +'縦線より右の減光部=当時見えなかった実際の値動き。';
     if(fcOn && ensUsed){
       msg='【当時の判定】'+ensUsed.verdict+'  P↑'+(ensUsed.pEns*100).toFixed(0)+'%';
       const st3=ensUsed.fan.med.length, tgt=pitIdx+st3;
@@ -2120,6 +2155,15 @@ function drawIndOverlay(){
           +'  方向'+(hit?'的中◯':'外れ✕')
           +' / 68%帯'+(in68?'内◯':'外')+' / 90%帯'+(in90?'内◯':'外✕');
       } else msg+='  (答え合わせ対象は表示範囲の右外)';
+      // BB分散傾向: 当時のバンド幅(±2σ) → 予測パス取り込み後の幅
+      if(sel.bb && bbFc.length && bbDisp[pitIdx]){
+        let bl=null; for(let j=bbFc.length-1;j>=0;j--){ if(bbFc[j]){bl=bbFc[j];break;} }
+        if(bl){
+          const w0=4*bbDisp[pitIdx].sd, w1=4*bl.sd, chg=(w1/Math.max(w0,1e-9)-1)*100;
+          msg+='  ／ BB幅(±2σ) '+fmt(w0)+'→'+fmt(w1)
+            +' ('+(chg>=0?'+':'')+chg.toFixed(1)+'% '+(chg>1?'拡散↗':chg<-1?'収束↘':'横ばい→')+')';
+        }
+      }
       msg+='  ※M5/M6は現在値の近似流用';
     } else if(pitState.pending){
       msg='当時予測を計算中… (指を離すと表示されます)';
